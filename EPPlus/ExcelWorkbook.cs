@@ -893,7 +893,7 @@ namespace OfficeOpenXml
 			}
 		}
 
-        private void SaveSharedStringHandler(ZipOutputStream stream, CompressionLevel compressionLevel, string fileName)
+        private void SaveSharedStringHandler(Packaging.ZipOutputWriter stream, CompressionLevel compressionLevel, string fileName)
 		{
             //Packaging.ZipPackagePart stringPart;
             //if (_package.Package.PartExists(SharedStringsUri))
@@ -908,7 +908,7 @@ namespace OfficeOpenXml
 
 			//StreamWriter sw = new StreamWriter(stringPart.GetStream(FileMode.Create, FileAccess.Write));
             //Init Zip
-            stream.CompressionLevel = (OfficeOpenXml.Packaging.Ionic.Zlib.CompressionLevel)compressionLevel;
+            stream.CompressionLevel = compressionLevel;
             stream.PutNextEntry(fileName);
 
             var cache = new StringBuilder();            

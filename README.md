@@ -1,3 +1,39 @@
+# orabooster-epplus
+
+A fork of **EPPlusFree 4.5.3.8** used by [OraBooster](https://www.orascope.net), with a faster save path.
+It is not an official EPPlus release and is not supported by EPPlus Software AB or by the EPPlusFree author.
+
+## Origin
+
+| | Repository | Version | License |
+|---|---|---|---|
+| Original | https://github.com/JanKallman/EPPlus (archived) | EPPlus 4.5.3.3, the last LGPL version | LGPL |
+| Continued by | https://github.com/rimland/EPPlus | EPPlusFree 4.5.3.8 (commit c777bbe) | LGPL-3.0 |
+| This fork | https://github.com/orascope/orabooster-epplus | 4.5.3.8-ora.N | LGPL-3.0 |
+
+EPPlus 5 and later are under a different (Polyform Noncommercial) license and are not used here.
+
+## License
+
+GNU Lesser General Public License v3.0: [COPYING.LESSER](COPYING.LESSER), with the GNU GPL v3.0 it refers to in [COPYING](COPYING).
+The copyright notices of the original authors are kept in the source files.
+
+## Changes in this fork
+
+See [CHANGES.md](CHANGES.md). Every change is also marked in the code with `orabooster-epplus:`.
+
+## Build
+
+```
+dotnet pack EPPlus/EPPlus.MultiTarget.csproj -c Release
+```
+
+Produces `OraBooster.EPPlus.<version>.nupkg` (assembly `OraBooster.EPPlus.dll`, namespace `OfficeOpenXml` as before).
+`tools/SaveBench` measures saving and writes sample workbooks; `tools/SaveBench/compare-xlsx.ps1` compares two workbooks part by part.
+
+---
+
+The README of EPPlusFree follows.
 # Continuous Version of EPPlus Free Edition 4.5.3.3
 **The [JanKallman/EPPlus](https://github.com/JanKallman/EPPlus) repository has been archived by the owner. So I fork it to my repository and continue to maintain the source code.**
 

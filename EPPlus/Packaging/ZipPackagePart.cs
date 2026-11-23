@@ -39,7 +39,7 @@ namespace OfficeOpenXml.Packaging
 {
     internal class ZipPackagePart : ZipPackageRelationshipBase, IDisposable
     {
-        internal delegate void SaveHandlerDelegate(ZipOutputStream stream, CompressionLevel compressionLevel, string fileName);
+        internal delegate void SaveHandlerDelegate(ZipOutputWriter stream, CompressionLevel compressionLevel, string fileName);
 
         internal ZipPackagePart(ZipPackage package, ZipEntry entry)
         {
@@ -132,7 +132,7 @@ namespace OfficeOpenXml.Packaging
             get;
             set;
         }
-        internal void WriteZip(ZipOutputStream os)
+        internal void WriteZip(ZipOutputWriter os)
         {
             byte[] b;
             if (SaveHandler == null)
@@ -142,7 +142,7 @@ namespace OfficeOpenXml.Packaging
                 {
                     return;
                 }
-                os.CompressionLevel = (OfficeOpenXml.Packaging.Ionic.Zlib.CompressionLevel)CompressionLevel;
+                os.CompressionLevel = CompressionLevel;
                 os.PutNextEntry(Uri.OriginalString);
                 os.Write(b, 0, b.Length);
             }

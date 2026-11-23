@@ -38,11 +38,11 @@ namespace OfficeOpenXml.Compatibility
     {
         public static bool IsPrimitive(object v)
         {
-#if (Core)            
-            return v.GetType().GetTypeInfo().IsPrimitive;
-#else
-            return v.GetType().IsPrimitive;
-#endif
+            // orabooster-epplus: the same answer as Type.IsPrimitive without reflection. It is asked for every cell
+            // when values are set and when a worksheet is saved. A boxed enum is not any of these types (as before).
+            if (v == null) throw new NullReferenceException(); // as v.GetType() did
+            return v is int || v is double || v is long || v is bool || v is float || v is short || v is byte
+                || v is char || v is uint || v is ulong || v is ushort || v is sbyte || v is IntPtr || v is UIntPtr;
         }
         public static bool IsSubclassOf(Type t, Type c)
         {
