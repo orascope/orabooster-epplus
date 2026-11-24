@@ -415,6 +415,8 @@ namespace OfficeOpenXml.Drawing.Chart
            _chartNode = chartNode;
 
            InitChartLoad(topChart._drawings, chartNode);
+           // orabooster-epplus: a loaded stock chart that is combined with another chart type had no chart type (0), issue #11
+           if (chartNode.LocalName == "stockChart") ChartType = GetChartType(chartNode.LocalName);
        }
        private void InitChartLoad(ExcelDrawings drawings, XmlNode chartNode)
        {
@@ -619,7 +621,8 @@ namespace OfficeOpenXml.Drawing.Chart
                case "surfaceChart":
                    return eChartType.Surface;
                case "stockChart":
-                   return eChartType.StockHLC;
+                   // orabooster-epplus: a stock chart with up/down bars has an open series (it was always reported as StockHLC)
+                   return _chartNode != null && _chartNode.SelectSingleNode("c:upDownBars", NameSpaceManager) != null ? eChartType.StockOHLC : eChartType.StockHLC;
                default:
                    return 0;
            }           
@@ -1203,6 +1206,33 @@ namespace OfficeOpenXml.Drawing.Chart
         // file is opened; it does not turn them on after it calculates the series. EPPlus writes no caches, so stock charts get
         // their caches from the worksheet values when they are saved. Other chart types are not changed.
         internal void UpdateStockSeriesCache()
+        {
+            // orabooster-epplus: also a stock chart that is combined with another chart type, as in a volume stock chart (issue #11)
+            if (_plotArea != null && _plotArea.ChartTypes.Count > 1)
+            {
+                var done = new HashSet<ExcelChart>(); // a loaded chart lists its first chart type twice
+                foreach (ExcelChart chartType in _plotArea.ChartTypes)
+                {
+                    if (done.Add(chartType)) chartType.UpdateOwnStockSeriesCache();
+                }
+            }
+            else
+            {
+                UpdateOwnStockSeriesCache();
+            }
+        }
+
+        // orabooster-epplus: the stock chart of a volume stock chart (issue #11). The chart that AddChart returns is the column chart
+        // of the volume; the first series added to it is the volume, the following ones go to this chart (see ExcelChartSeries.AddSeries).
+        internal ExcelChart _stockChartOfVolumeChart = null;
+        internal void AddStockChartOfVolumeChart(eChartType stockType)
+        {
+            ExcelChart stock = PlotArea.ChartTypes.Add(stockType);
+            stock.UseSecondaryAxis = true;
+            _stockChartOfVolumeChart = stock;
+        }
+
+        void UpdateOwnStockSeriesCache()
         {
             if (ChartType != eChartType.StockHLC && ChartType != eChartType.StockOHLC) return;
             if (_chartNode == null) return;

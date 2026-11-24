@@ -256,11 +256,17 @@ namespace OfficeOpenXml.Drawing
         #region Add functions
             /// <summary>
             /// Add a new chart to the worksheet.
-            /// Do not support Bubble-, Radar-, Stock- or Surface charts. 
+            /// Do not support Bubble-, Radar-, Stock- or Surface charts.
             /// </summary>
+            /// <remarks>
+            /// orabooster-epplus: the stock charts are supported. Add their series in the order Excel uses:
+            /// StockHLC high, low, close; StockOHLC open, high, low, close; StockVHLC and StockVOHLC the volume first, then the same.
+            /// For the two charts with volume the chart that is returned is the column chart of the volume (ChartType is ColumnClustered);
+            /// the series after the first go to its stock chart, PlotArea.ChartTypes[1], which uses the secondary axes.
+            /// </remarks>
             /// <param name="Name"></param>
             /// <param name="ChartType">Type of chart</param>
-            /// <param name="PivotTableSource">The pivottable source for a pivotchart</param>    
+            /// <param name="PivotTableSource">The pivottable source for a pivotchart</param>
             /// <returns>The chart</returns>
             public ExcelChart AddChart(string Name, eChartType ChartType, ExcelPivotTable PivotTableSource)
             {
@@ -269,12 +275,13 @@ namespace OfficeOpenXml.Drawing
                     throw new Exception("Name already exists in the drawings collection");
                 }
 
-                // orabooster-epplus: StockHLC and StockOHLC are supported. The volume stock charts need a bar chart and a stock chart
-                // on two axis groups and are not. Check before anything is added to the drawing (StockVHLC used to fail half way).
-                if (ChartType == eChartType.StockVHLC ||
-                    ChartType == eChartType.StockVOHLC)
+                // orabooster-epplus: a volume stock chart (issue #11) is two charts in one plot area: a clustered column chart with the
+                // volume on the primary axes and a stock chart on the secondary axes. A pivot chart can not be combined with another
+                // chart type; that is checked before anything is added to the drawing.
+                bool volumeStock = ChartType == eChartType.StockVHLC || ChartType == eChartType.StockVOHLC;
+                if (volumeStock && PivotTableSource != null)
                 {
-                    throw(new NotSupportedException("Chart type is not supported in the current version"));
+                    throw(new NotSupportedException("A stock chart with volume can not be a pivot chart"));
                 }
                 if (Worksheet is ExcelChartsheet && _drawings.Count > 0)
                 {
@@ -282,7 +289,8 @@ namespace OfficeOpenXml.Drawing
                 }
                 XmlElement drawNode = CreateDrawingXml();
 
-                ExcelChart chart = ExcelChart.GetNewChart(this, drawNode, ChartType, null, PivotTableSource);
+                ExcelChart chart = ExcelChart.GetNewChart(this, drawNode, volumeStock ? eChartType.ColumnClustered : ChartType, null, PivotTableSource);
+                if (volumeStock) chart.AddStockChartOfVolumeChart(ChartType == eChartType.StockVOHLC ? eChartType.StockOHLC : eChartType.StockHLC);
                 chart.Name = Name;
                 _drawings.Add(chart);
                 _drawingNames.Add(Name, _drawings.Count - 1);

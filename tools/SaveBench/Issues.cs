@@ -60,6 +60,50 @@ static class Issues
             }
         }
 
+        // #11: the stock charts with volume. The series are added one after the other to the chart from AddChart,
+        // volume first, as a caller does that knows nothing about the two parts of the chart.
+        foreach (var type in new[] { eChartType.StockVHLC, eChartType.StockVOHLC })
+        {
+            using (var p = new ExcelPackage())
+            {
+                var ws = p.Workbook.Worksheets.Add("S");
+                string[] names = type == eChartType.StockVOHLC
+                    ? new[] { "Volume", "Open", "High", "Low", "Close" }
+                    : new[] { "Volume", "High", "Low", "Close" };
+                ws.Cells["A1"].Value = "Day";
+                for (int c = 0; c < names.Length; c++) ws.Cells[1, c + 2].Value = names[c];
+                var rnd = new Random(1);
+                for (int r = 2; r <= 21; r++)
+                {
+                    ws.Cells[r, 1].Value = new DateTime(2026, 1, 1).AddDays(r);
+                    ws.Cells[r, 1].Style.Numberformat.Format = "yyyy-mm-dd";
+                    double open = 100 + rnd.Next(20), close = 100 + rnd.Next(20);
+                    double high = Math.Max(open, close) + rnd.Next(5), low = Math.Min(open, close) - rnd.Next(5);
+                    double[] v = type == eChartType.StockVOHLC ? new[] { open, high, low, close } : new[] { high, low, close };
+                    ws.Cells[r, 2].Value = 1000 + rnd.Next(9000);
+                    for (int c = 0; c < v.Length; c++) ws.Cells[r, c + 3].Value = v[c];
+                }
+                var chart = ws.Drawings.AddChart("Chart_" + type, type);
+                for (int c = 0; c < names.Length; c++)
+                {
+                    var s = chart.Series.Add(ExcelCellBase.GetAddress(2, c + 2, 21, c + 2), "A2:A21");
+                    s.HeaderAddress = ws.Cells[1, c + 2];
+                }
+                chart.Title.Text = type.ToString();
+                chart.SetPosition(1, 0, 7, 0);
+                chart.SetSize(600, 360);
+
+                // the same chart on a chart sheet
+                var sheetChart = p.Workbook.Worksheets.AddChart("ChartSheet", type).Chart;
+                for (int c = 0; c < names.Length; c++)
+                {
+                    var s = sheetChart.Series.Add(ws.Cells[2, c + 2, 21, c + 2], ws.Cells["A2:A21"]);
+                    s.HeaderAddress = ws.Cells[1, c + 2];
+                }
+                p.SaveAs(new FileInfo(Path.Combine(a_dir, "issue11_" + type + ".xlsx")));
+            }
+        }
+
         // #9: ignored errors, on a sheet that also has the parts written after them (drawing, comments, table).
         // Columns A and D fail an error check and are ignored (no green triangle); columns B and E fail the same checks and are not.
         using (var p = new ExcelPackage())

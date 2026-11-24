@@ -23,6 +23,7 @@
     <PackageReleaseNotes>
 		4.5.3.8-ora.3
 		- Ignored errors of a worksheet: ExcelWorksheet.IgnoredErrors (issue #9).
+		- Stock charts with volume: StockVHLC and StockVOHLC (issue #11).
 		4.5.3.8-ora.2
 		- Deleting a table no longer leaves the next table id at 0 or at an id in use (issue #2).
 		- Column3D, StockHLC and StockOHLC charts; the volume stock charts throw NotSupportedException before anything is added (issue #3).

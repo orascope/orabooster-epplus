@@ -178,6 +178,12 @@ namespace OfficeOpenXml.Drawing.Chart
        }
        internal protected ExcelChartSerie AddSeries(string SeriesAddress, string XSeriesAddress, string bubbleSizeAddress)
         {
+               // orabooster-epplus: a volume stock chart (issue #11). The first series is the volume and stays on this column chart;
+               // the following ones (open, high, low, close) belong to its stock chart, in the order Excel uses.
+               if (_chart._stockChartOfVolumeChart != null && _list.Count >= 1)
+               {
+                   return _chart._stockChartOfVolumeChart.Series.AddSeries(SeriesAddress, XSeriesAddress, bubbleSizeAddress);
+               }
                XmlElement ser = _node.OwnerDocument.CreateElement("ser", ExcelPackage.schemaChart);
                XmlNodeList node = _node.SelectNodes("c:ser", _ns);
                if (node.Count > 0)
@@ -189,7 +195,7 @@ namespace OfficeOpenXml.Drawing.Chart
                    InserAfter(_node, "c:varyColors,c:grouping,c:barDir,c:scatterStyle,c:ofPieType", ser);
                 }
                int idx = FindIndex();
-               ser.InnerXml = string.Format("<c:idx val=\"{1}\" /><c:order val=\"{1}\" /><c:tx><c:strRef><c:f></c:f><c:strCache><c:ptCount val=\"1\" /></c:strCache></c:strRef></c:tx>{5}{0}{2}{3}{4}", AddExplosion(Chart.ChartType), idx, AddScatterPoint(Chart.ChartType), AddAxisNodes(Chart.ChartType), AddSmooth(Chart.ChartType), AddMarker(Chart.ChartType, idx));
+               ser.InnerXml = string.Format("<c:idx val=\"{1}\" /><c:order val=\"{1}\" /><c:tx><c:strRef><c:f></c:f><c:strCache><c:ptCount val=\"1\" /></c:strCache></c:strRef></c:tx>{5}{0}{2}{3}{4}", AddExplosion(Chart.ChartType), idx, AddScatterPoint(Chart.ChartType), AddAxisNodes(Chart.ChartType), AddSmooth(Chart.ChartType), AddMarker(Chart.ChartType, _list.Count)); // orabooster-epplus: the position in this chart, not idx: they differ when chart types are combined (issue #11)
                ExcelChartSerie serie;
                switch (Chart.ChartType)
                {
