@@ -78,10 +78,11 @@ Produces `EPPlus/bin/Release/OraBooster.EPPlus.<version>.nupkg` (0 errors; the C
 Tests (EPPlusTest, MSTest, `net10.0-windows`):
 
 ```
-dotnet test EPPlusTest/EPPlusTest.Core.csproj -c Release --filter "FullyQualifiedName!=EPPlusTest.WorkSheetTest.DateFunctionsWorkWithDifferentCultureDateFormats_GB"
+dotnet test EPPlusTest/EPPlusTest.Core.csproj -c Release
 ```
 
-1,186 passed, 10 failed, 214 skipped. The 10 failures and the excluded test (it crashes the test host) are the same on EPPlusFree 4.5.3.8; `OraBoosterIssuesTests` covers the fixes and the new features in this fork. Some old tests still write files to `C:\temp`.
+1,198 passed, 0 failed, 214 skipped (the skipped ones are marked `[Ignore]` in EPPlus 4.5; most need files that are not in the repository). `OraBoosterIssuesTests` covers the fixes and the new features in this fork. Some old tests still write files to `C:\temp`.
+Until ora.2 ten tests failed and one stopped the test host and was left out of the run; see #23 in [CHANGES.md](CHANGES.md).
 
 Tools:
 - `tools/SaveBench`: `SaveBench [rows] [cols] [runs]` times each stage of a save. `SaveBench variety <path>`, `SaveBench keep <rows> <cols> <path>` and `SaveBench issues <dir>` write sample workbooks; `SaveBench fill` and `SaveBench load <xlsx>` time putting values and loading. Build it with `-p:UsePackage=true` to run the same code against the EPPlusFree 4.5.3.8 package.

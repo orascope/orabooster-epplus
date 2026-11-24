@@ -2299,11 +2299,22 @@ namespace EPPlusTest
 
             pkg = OpenPackage("issue246.xlsx");
             ws = _pck.Workbook.Worksheets["DateFormat"];
+            // orabooster-epplus (issue #23): the format [$-F800] is the long date of the system. The test expected the text
+            // "den 31 december 2018", which is the long date of sv-SE on .NET Framework (from Windows); .NET 5 and later take it from
+            // ICU ("måndag 31 december 2018"). The expected text is now what the culture gives. And the culture is set back in a
+            // finally: when the assert failed it was left on the thread, and seven tests that ran after this one failed with it.
             var pCulture = System.Threading.Thread.CurrentThread.CurrentCulture;
-            System.Threading.Thread.CurrentThread.CurrentCulture = new CultureInfo("sv-Se");
-            Assert.AreEqual(ws.Cells["A1"].Text, "den 31 december 2018");
-            Assert.AreEqual(ws.GetValue<DateTime>(1, 1), new DateTime(2018, 12, 31));
-            System.Threading.Thread.CurrentThread.CurrentCulture = pCulture;
+            try
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = new CultureInfo("sv-Se");
+                Assert.AreEqual(new DateTime(2018, 12, 31).ToString("D", System.Threading.Thread.CurrentThread.CurrentCulture), ws.Cells["A1"].Text);
+                Assert.IsTrue(ws.Cells["A1"].Text.EndsWith("31 december 2018"), ws.Cells["A1"].Text);
+                Assert.AreEqual(ws.GetValue<DateTime>(1, 1), new DateTime(2018, 12, 31));
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = pCulture;
+            }
         }
         [TestMethod]
         public void Issue347()
