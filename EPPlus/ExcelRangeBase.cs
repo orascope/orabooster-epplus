@@ -806,7 +806,6 @@ namespace OfficeOpenXml
             {
                 SetToSelectedRange();
             }
-            var fontCache = new Dictionary<int, Font>();
 
             bool doAdjust = _worksheet._package.DoAdjustDrawings;
             _worksheet._package.DoAdjustDrawings = false;
@@ -881,40 +880,74 @@ namespace OfficeOpenXml
             // orabooster-epplus: dispose the GDI+ objects. They were left to the finalizer, and StringFormat.GenericDefault
             // returns a new object on every call, so each measured cell left one more object for the finalizer thread.
             var sf = StringFormat.GenericDefault;
+            // orabooster-epplus: issue #14. The loop gives every column the width it got before, with less work per cell:
+            //  - the cells are read from the cell store by row and column. "foreach (var cell in this)" made a range object and an
+            //    address string for every cell, and cell.Style made a style object to read one flag;
+            //  - what depends only on the style (font, indent, rotation, wrap, number format) is looked up once per style;
+            //  - a text that was measured with the same font is not measured again. In a text of plain ASCII the digits count as
+            //    the same character when the font is shown to give every digit the same width in every place (see AutoFitFont),
+            //    so a column of numbers or dates is measured a few times, not once per cell.
+            var autoFitFonts = new Dictionary<int, AutoFitFont>();
+            var autoFitStyles = new Dictionary<int, AutoFitStyle>();
+            var autoFitColumns = new Dictionary<int, ExcelColumn>();
+            bool anyMerged = _worksheet.MergedCells.Count > 0;
+            // the cell ranges made by the enumerator carried the name of the worksheet; a filter row counts only on the same sheet name
+            bool filterRows = afAddr.Count > 0 && _worksheet.Name == WorkSheet;
             try
             {
-            foreach (var cell in this)
+            // the same cells in the same order as the enumerator of the range: the range itself, then each of its addresses
+            var areas = new List<ExcelAddressBase>();
+            areas.Add(new ExcelAddressBase(_fromRow, _fromCol, _toRow, _toCol));
+            if (_addresses != null) areas.AddRange(_addresses);
+            foreach (var area in areas)
             {
-                if (_worksheet.Column(cell.Start.Column).Hidden)    //Issue 15338
+            var cells = new CellsStoreEnumerator<ExcelCoreValue>(_worksheet._values, area._fromRow, area._fromCol, area._toRow, area._toCol);
+            while (cells.Next())
+            {
+                int row = cells.Row, col = cells.Column;
+
+                ExcelColumn column;
+                if (!autoFitColumns.TryGetValue(col, out column))
+                {
+                    column = _worksheet.Column(col); // makes the column object when there is none, as before
+                    autoFitColumns.Add(col, column);
+                }
+                if (column.Hidden)    //Issue 15338
                     continue;
 
-                if (cell.Merge == true || cell.Style.WrapText) continue;
-                var fntID = styles.CellXfs[cell.StyleID].FontId;
-                Font f;
-                if (fontCache.ContainsKey(fntID))
-                {
-                    f = fontCache[fntID];
-                }
-                else
-                {
-                    var fnt = styles.Fonts[fntID];
-                    fs = FontStyle.Regular;
-                    if (fnt.Bold) fs |= FontStyle.Bold;
-                    if (fnt.UnderLine) fs |= FontStyle.Underline;
-                    if (fnt.Italic) fs |= FontStyle.Italic;
-                    if (fnt.Strike) fs |= FontStyle.Strikeout;
-                    f = new Font(fnt.Name, fnt.Size, fs);
+                if (anyMerged && _worksheet.MergedCells[row, col] != null) continue;
 
-                    fontCache.Add(fntID, f);
+                // the style as cell.Style took it (cell, then row, then the column that covers the cell): for the wrap flag
+                int wrapStyleId = 0;
+                if (!_worksheet.ExistsStyleInner(row, col, ref wrapStyleId))
+                {
+                    if (!_worksheet.ExistsStyleInner(row, 0, ref wrapStyleId))
+                    {
+                        var c = _worksheet.GetColumn(col);
+                        wrapStyleId = c == null ? 0 : c.StyleID;
+                    }
                 }
-                var ind = styles.CellXfs[cell.StyleID].Indent;
-                var textForWidth = cell.TextForWidth;
-                var t = textForWidth + (ind > 0 && !string.IsNullOrEmpty(textForWidth) ? new string('_', ind) : "");
+                if (GetAutoFitStyle(autoFitStyles, autoFitFonts, styles, wrapStyleId).WrapText) continue;
+
+                // the style as cell.StyleID took it (cell, then row, then the column entry): for everything else
+                int styleId = 0;
+                if (!_worksheet.ExistsStyleInner(row, col, ref styleId))
+                {
+                    if (!_worksheet.ExistsStyleInner(row, 0, ref styleId))
+                    {
+                        styleId = _worksheet.GetStyleInner(0, col);
+                    }
+                }
+                AutoFitStyle style = GetAutoFitStyle(autoFitStyles, autoFitFonts, styles, styleId);
+
+                object v = _worksheet.GetValue(row, col);
+                var textForWidth = v == null ? "" : FormatValue(v, style.Format, style.Format.NetFormatForWidth, style.Format.NetTextFormatForWidth);
+                var t = textForWidth + (style.Indent > 0 && !string.IsNullOrEmpty(textForWidth) ? new string('_', style.Indent) : "");
                 if (t.Length > 32000) t = t.Substring(0, 32000); //Issue
-                var size = g.MeasureString(t, f, 10000, sf);
+                var size = style.Font.Measure(g, sf, t);
 
                 double width;
-                double r = styles.CellXfs[cell.StyleID].TextRotation;
+                double r = style.TextRotation;
                 if (r <= 0)
                 {
                     width = (size.Width + 5) / normalSize;
@@ -925,29 +958,182 @@ namespace OfficeOpenXml
                     width = (((size.Width - size.Height) * Math.Abs(System.Math.Cos(System.Math.PI * r / 180.0)) + size.Height) + 5) / normalSize;
                 }
 
-                foreach (var a in afAddr)
+                if (filterRows)
                 {
-                    if (a.Collide(cell) != eAddressCollition.No)
+                    foreach (var a in afAddr)
                     {
-                        width += 2.25;
-                        break;
+                        if (row >= a._fromRow && row <= a._toRow && col >= a._fromCol && col <= a._toCol)
+                        {
+                            width += 2.25;
+                            break;
+                        }
                     }
                 }
 
-                if (width > _worksheet.Column(cell._fromCol).Width)
+                if (width > column.Width)
                 {
-                    _worksheet.Column(cell._fromCol).Width = width > MaximumWidth ? MaximumWidth : width;
+                    column.Width = width > MaximumWidth ? MaximumWidth : width;
                 }
+            }
             }
             }
             finally
             {
                 sf.Dispose(); g.Dispose(); b.Dispose(); nfont.Dispose();
-                foreach (var cachedFont in fontCache.Values) cachedFont.Dispose();
+                foreach (var cachedFont in autoFitFonts.Values) cachedFont.Font.Dispose();
             }
             _worksheet.Drawings.AdjustWidth(drawWidths);
             _worksheet._package.DoAdjustDrawings = doAdjust;
         }
+
+        #region orabooster-epplus: AutoFitColumns helpers (issue #14)
+        /// <summary>
+        /// What AutoFitColumns needs from a cell style, looked up once per style.
+        /// </summary>
+        private class AutoFitStyle
+        {
+            internal AutoFitFont Font;
+            internal int Indent;
+            internal int TextRotation;
+            internal bool WrapText;
+            internal ExcelNumberFormatXml.ExcelFormatTranslator Format;
+        }
+
+        /// <summary>
+        /// A font of the workbook with the sizes of the texts that were measured with it.
+        /// </summary>
+        private class AutoFitFont
+        {
+            // More texts than this are not kept, and long texts are not kept at all: they are rarely the same twice.
+            const int MaxTexts = 100000;
+            const int MaxTextLength = 256;
+
+            // The check of the digits takes about 3,800 measurements. It is made once this many texts with digits had to be
+            // measured, so a small range does not pay for it.
+            const int TextsBeforeDigitCheck = 1000;
+
+            internal Font Font;
+            readonly Dictionary<string, SizeF> _sizes = new Dictionary<string, SizeF>();
+            bool _digitsChecked, _digitsAlike;
+            int _measuredWithDigits;
+
+            internal SizeF Measure(Graphics g, StringFormat sf, string t)
+            {
+                if (t.Length > MaxTextLength) return g.MeasureString(t, Font, 10000, sf);
+
+                string key = t;
+                bool digits = HasDigitToFold(t);
+                if (digits && _digitsAlike) key = FoldDigits(t);
+
+                SizeF size;
+                if (!_sizes.TryGetValue(key, out size))
+                {
+                    size = g.MeasureString(t, Font, 10000, sf);
+                    if (_sizes.Count < MaxTexts) _sizes.Add(key, size);
+                    if (digits && !_digitsChecked && ++_measuredWithDigits >= TextsBeforeDigitCheck)
+                    {
+                        _digitsAlike = DigitsAreAlike(g, sf);
+                        _digitsChecked = true;
+                    }
+                }
+                return size;
+            }
+
+            // True for a text of printable ASCII only with a digit other than 0. Other texts are kept as they are: characters
+            // outside ASCII can come from another font or be shaped with their neighbours, which the check below does not cover.
+            static bool HasDigitToFold(string t)
+            {
+                bool digit = false;
+                for (int i = 0; i < t.Length; i++)
+                {
+                    char ch = t[i];
+                    if (ch < ' ' || ch > '~') return false;
+                    if (ch >= '1' && ch <= '9') digit = true;
+                }
+                return digit;
+            }
+
+            static string FoldDigits(string t)
+            {
+                char[] a = t.ToCharArray();
+                for (int i = 0; i < a.Length; i++)
+                {
+                    if (a[i] >= '1' && a[i] <= '9') a[i] = '0';
+                }
+                return new string(a);
+            }
+
+            // True when a digit can be replaced with any other digit without changing the measured size of a text of printable
+            // ASCII: every digit alone, and before and after every printable ASCII character (the digits among them), measures the
+            // same as 0 in its place. The width of a text is the sum of the widths of its characters and of the kerning between
+            // neighbours, so this covers every such text. A font with digits of different widths, or with kerning that depends
+            // on the digit, fails the check and its texts are measured one by one, as before.
+            bool DigitsAreAlike(Graphics g, StringFormat sf)
+            {
+                SizeF zero = g.MeasureString("0", Font, 10000, sf);
+                for (char d = '1'; d <= '9'; d++)
+                {
+                    if (g.MeasureString(d.ToString(), Font, 10000, sf) != zero) return false;
+                }
+                // a letter on the far side keeps a space in the middle from being a trailing space, which is not measured
+                for (char ch = ' '; ch <= '~'; ch++)
+                {
+                    SizeF after = g.MeasureString("x" + ch + "0x", Font, 10000, sf);
+                    SizeF before = g.MeasureString("x0" + ch + "x", Font, 10000, sf);
+                    SizeF first = g.MeasureString("0" + ch, Font, 10000, sf);
+                    SizeF last = g.MeasureString(ch + "0", Font, 10000, sf);
+                    for (char d = '1'; d <= '9'; d++)
+                    {
+                        if (g.MeasureString("x" + ch + d + "x", Font, 10000, sf) != after) return false;
+                        if (g.MeasureString("x" + d + ch + "x", Font, 10000, sf) != before) return false;
+                        if (g.MeasureString(d.ToString() + ch, Font, 10000, sf) != first) return false;
+                        if (g.MeasureString(ch.ToString() + d, Font, 10000, sf) != last) return false;
+                    }
+                }
+                return true;
+            }
+        }
+
+        private static AutoFitStyle GetAutoFitStyle(Dictionary<int, AutoFitStyle> styleCache, Dictionary<int, AutoFitFont> fontCache, ExcelStyles styles, int styleId)
+        {
+            AutoFitStyle style;
+            if (styleCache.TryGetValue(styleId, out style)) return style;
+
+            var xf = styles.CellXfs[styleId];
+            style = new AutoFitStyle { Indent = xf.Indent, TextRotation = xf.TextRotation, WrapText = xf.WrapText };
+
+            var fntID = xf.FontId;
+            if (!fontCache.TryGetValue(fntID, out style.Font))
+            {
+                var fnt = styles.Fonts[fntID];
+                var fs = FontStyle.Regular;
+                if (fnt.Bold) fs |= FontStyle.Bold;
+                if (fnt.UnderLine) fs |= FontStyle.Underline;
+                if (fnt.Italic) fs |= FontStyle.Italic;
+                if (fnt.Strike) fs |= FontStyle.Strikeout;
+                style.Font = new AutoFitFont { Font = new Font(fnt.Name, fnt.Size, fs) };
+                fontCache.Add(fntID, style.Font);
+            }
+
+            // the number format, found as GetFormattedText finds it
+            var nfID = xf.NumberFormatId;
+            for (int i = 0; i < styles.NumberFormats.Count; i++)
+            {
+                if (nfID == styles.NumberFormats[i].NumFmtId)
+                {
+                    style.Format = styles.NumberFormats[i].FormatTranslator;
+                    break;
+                }
+            }
+            if (style.Format == null)
+            {
+                style.Format = styles.NumberFormats[0].FormatTranslator;
+            }
+
+            styleCache.Add(styleId, style);
+            return style;
+        }
+        #endregion
 
         private void SetMinWidth(double minimumWidth, int fromCol, int toCol)
         {
