@@ -276,10 +276,10 @@ namespace OfficeOpenXml.Packaging
         internal void Save(Stream stream)
         {
             var enc = Encoding.UTF8;
-            ZipOutputStream os = new ZipOutputStream(stream, true);
-            os.CompressionLevel = (OfficeOpenXml.Packaging.Ionic.Zlib.CompressionLevel)_compression;            
+            ZipOutputWriter os = new ZipOutputWriter(stream, true);
+            os.CompressionLevel = _compression;            
             /**** ContentType****/
-            var entry = os.PutNextEntry("[Content_Types].xml");
+            os.PutNextEntry("[Content_Types].xml");
             byte[] b = enc.GetBytes(GetContentTypeXml());
             os.Write(b, 0, b.Length);
             /**** Top Rels ****/

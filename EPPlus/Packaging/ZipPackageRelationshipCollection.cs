@@ -84,7 +84,7 @@ namespace OfficeOpenXml.Packaging
             return ret;
         }
 
-        internal void WriteZip(ZipOutputStream os, string fileName)
+        internal void WriteZip(ZipOutputWriter os, string fileName)
         {
             StringBuilder xml = new StringBuilder("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">");
             foreach (var rel in _rels.Values)

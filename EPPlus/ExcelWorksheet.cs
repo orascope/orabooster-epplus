@@ -2989,11 +2989,11 @@ namespace OfficeOpenXml
                 }
             }
         }
-        internal void SaveHandler(ZipOutputStream stream, CompressionLevel compressionLevel, string fileName)
+        internal void SaveHandler(Packaging.ZipOutputWriter stream, CompressionLevel compressionLevel, string fileName)
         {
                     //Init Zip
                     stream.CodecBufferSize = 8096;
-                    stream.CompressionLevel = (OfficeOpenXml.Packaging.Ionic.Zlib.CompressionLevel)compressionLevel;
+                    stream.CompressionLevel = compressionLevel;
                     stream.PutNextEntry(fileName);
 
                     
@@ -3704,7 +3704,7 @@ namespace OfficeOpenXml
                     {
                         if (v == null && styleID > 0)
                         {
-                            cache.AppendFormat("<c r=\"{0}\" s=\"{1}\"/>", cse.CellAddress, styleID < 0 ? 0 : styleID);
+                            cache.Append("<c r=\"").Append(cse.CellAddress).Append("\" s=\"").Append(styleID).Append("\"/>");
                         }
                         else if (v != null)
                         {
@@ -3720,25 +3720,24 @@ namespace OfficeOpenXml
                             }
                             if ((TypeCompat.IsPrimitive(v) || v is double || v is decimal || v is DateTime || v is TimeSpan))
                             {
-                                //string sv = GetValueForXml(v);
-                                cache.AppendFormat("<c r=\"{0}\" s=\"{1}\"{2}>", cse.CellAddress, styleID < 0 ? 0 : styleID, GetCellType(v));
-                                cache.AppendFormat("{0}</c>", GetFormulaValue(v));
+                                // orabooster-epplus: Append instead of AppendFormat (same text, fewer allocations)
+                                cache.Append("<c r=\"").Append(cse.CellAddress).Append("\" s=\"").Append(styleID < 0 ? 0 : styleID).Append('"').Append(GetCellType(v)).Append('>');
+                                cache.Append(GetFormulaValue(v)).Append("</c>");
                             }
                             else
                             {
                                 var vString = Convert.ToString(v);
                                 int ix;
-                                if (!ss.ContainsKey(vString))
+                                if (ss.TryGetValue(vString, out var ssItem))
+                                {
+                                    ix = ssItem.pos;
+                                }
+                                else
                                 {
                                     ix = ss.Count;
                                     ss.Add(vString, new ExcelWorkbook.SharedStringItem() { isRichText = _flags.GetFlagValue(cse.Row, cse.Column, CellFlags.RichText), pos = ix });
                                 }
-                                else
-                                {
-                                    ix = ss[vString].pos;
-                                }
-                                cache.AppendFormat("<c r=\"{0}\" s=\"{1}\" t=\"s\">", cse.CellAddress, styleID < 0 ? 0 : styleID);
-                                cache.AppendFormat("<v>{0}</v></c>", ix);
+                                cache.Append("<c r=\"").Append(cse.CellAddress).Append("\" s=\"").Append(styleID < 0 ? 0 : styleID).Append("\" t=\"s\"><v>").Append(ix).Append("</v></c>");
                             }
                         }
                     }
@@ -3756,7 +3755,7 @@ namespace OfficeOpenXml
                 }
                 if (cache.Length > 0x600000)
                 {
-                    sw.Write(cache.ToString());
+                    sw.Write(cache); // orabooster-epplus: writes the chunks without copying them into one string first
                     sw.Flush();
                     cache.Length = 0;
                 }
@@ -3765,7 +3764,7 @@ namespace OfficeOpenXml
 
             if (row != -1) cache.Append("</row>");
             cache.Append("</sheetData>");
-            sw.Write(cache.ToString());
+            sw.Write(cache);
             sw.Flush();
         }
 
@@ -3850,7 +3849,8 @@ namespace OfficeOpenXml
         {
             //if (_package.Workbook._isCalculated)
             //{                    
-            if (v != null && v.ToString()!="")
+            // orabooster-epplus: numbers, dates and booleans never print as ""; skip the extra ToString for them
+            if (v != null && (v is double || v is DateTime || v is decimal || v is int || v is long || v is bool || v.ToString() != ""))
             {
                 return "<v>" + ConvertUtil.ExcelEscapeString(GetValueForXml(v)) + "</v>"; //Fixes issue 15071
             }            
@@ -3931,7 +3931,7 @@ namespace OfficeOpenXml
         {
             if (prevRow != -1) cache.Append("</row>");
             //ulong rowID = ExcelRow.GetRowID(SheetID, row);
-            cache.AppendFormat("<row r=\"{0}\"", row);
+            cache.Append("<row r=\"").Append(row).Append('"');
             RowInternal currRow = GetValueInner(row, 0) as RowInternal;
             if (currRow != null)
             {

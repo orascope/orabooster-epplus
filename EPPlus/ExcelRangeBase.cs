@@ -864,7 +864,7 @@ namespace OfficeOpenXml
 
             var normalSize = Convert.ToSingle(ExcelWorkbook.GetWidthPixels(nf.Name, nf.Size));
 
-            Bitmap b;
+            Bitmap b = null;
             Graphics g = null;
             try
             {
@@ -875,9 +875,14 @@ namespace OfficeOpenXml
             }
             catch
             {
+                g?.Dispose(); b?.Dispose(); nfont.Dispose();
                 return;
             }
-
+            // orabooster-epplus: dispose the GDI+ objects. They were left to the finalizer, and StringFormat.GenericDefault
+            // returns a new object on every call, so each measured cell left one more object for the finalizer thread.
+            var sf = StringFormat.GenericDefault;
+            try
+            {
             foreach (var cell in this)
             {
                 if (_worksheet.Column(cell.Start.Column).Hidden)    //Issue 15338
@@ -906,7 +911,7 @@ namespace OfficeOpenXml
                 var textForWidth = cell.TextForWidth;
                 var t = textForWidth + (ind > 0 && !string.IsNullOrEmpty(textForWidth) ? new string('_', ind) : "");
                 if (t.Length > 32000) t = t.Substring(0, 32000); //Issue
-                var size = g.MeasureString(t, f, 10000, StringFormat.GenericDefault);
+                var size = g.MeasureString(t, f, 10000, sf);
 
                 double width;
                 double r = styles.CellXfs[cell.StyleID].TextRotation;
@@ -933,6 +938,12 @@ namespace OfficeOpenXml
                 {
                     _worksheet.Column(cell._fromCol).Width = width > MaximumWidth ? MaximumWidth : width;
                 }
+            }
+            }
+            finally
+            {
+                sf.Dispose(); g.Dispose(); b.Dispose(); nfont.Dispose();
+                foreach (var cachedFont in fontCache.Values) cachedFont.Dispose();
             }
             _worksheet.Drawings.AdjustWidth(drawWidths);
             _worksheet._package.DoAdjustDrawings = doAdjust;
