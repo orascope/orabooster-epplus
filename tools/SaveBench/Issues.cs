@@ -59,5 +59,28 @@ static class Issues
                 p.SaveAs(new FileInfo(Path.Combine(a_dir, "issue3_" + type + ".xlsx")));
             }
         }
+
+        // #9: ignored errors, on a sheet that also has the parts written after them (drawing, comments, table).
+        // Columns A and D fail an error check and are ignored (no green triangle); columns B and E fail the same checks and are not.
+        using (var p = new ExcelPackage())
+        {
+            var ws = p.Workbook.Worksheets.Add("S");
+            ws.Cells["A1"].Value = "Id (ignored)"; ws.Cells["B1"].Value = "Id"; ws.Cells["C1"].Value = "N";
+            ws.Cells["D1"].Value = "Error (ignored)"; ws.Cells["E1"].Value = "Error";
+            for (int r = 2; r <= 21; r++)
+            {
+                ws.Cells[r, 1].Value = "00" + r; ws.Cells[r, 2].Value = "00" + r; ws.Cells[r, 3].Value = r;
+                ws.Cells[r, 4].Formula = "1/0"; ws.Cells[r, 5].Formula = "1/0";
+            }
+            ws.Tables.Add(ws.Cells["A1:E21"], "Table_Ids");
+            ws.IgnoredErrors.Add("A2:A21", eErrorChecks.NumberStoredAsText);
+            ws.IgnoredErrors.Add("D2:D21", eErrorChecks.EvalError);
+            var chart = ws.Drawings.AddChart("Chart_N", eChartType.ColumnClustered);
+            chart.Series.Add("C2:C21", "A2:A21");
+            chart.SetPosition(1, 0, 7, 0);
+            ws.Cells["A1"].AddComment("Text ids: the number-stored-as-text check is ignored for A2:A21", "SaveBench");
+            ws.Cells["A1:E21"].AutoFitColumns();
+            p.SaveAs(new FileInfo(Path.Combine(a_dir, "issue9_ignored_errors.xlsx")));
+        }
     }
 }

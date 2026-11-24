@@ -1958,6 +1958,7 @@ namespace OfficeOpenXml
                         dv.SetAddress(newAddr);
                     }
                 }
+                ShiftIgnoredErrors(rowFrom, rows, true, true); // orabooster-epplus: issue #9
             }
 
             // Update cross-sheet references.
@@ -2160,6 +2161,7 @@ namespace OfficeOpenXml
                         dv.SetAddress(newAddr);
                     }
                 }
+                ShiftIgnoredErrors(columnFrom, columns, false, true); // orabooster-epplus: issue #9
 
                 // Update cross-sheet references.
                 foreach (var sheet in Workbook.Worksheets.Where(sheet => sheet != this))
@@ -2565,6 +2567,7 @@ namespace OfficeOpenXml
                         }
                     }
                 }
+                ShiftIgnoredErrors(rowFrom, rows, true, false); // orabooster-epplus: issue #9
             }
         }
         /// <summary>
@@ -2677,6 +2680,7 @@ namespace OfficeOpenXml
                         }
                     }
                 }
+                ShiftIgnoredErrors(columnFrom, columns, false, false); // orabooster-epplus: issue #9
             }
         }
         internal void AdjustFormulasRow(int rowFrom, int rows)
@@ -4165,6 +4169,28 @@ namespace OfficeOpenXml
                     _protectedRanges = new ExcelProtectedRangeCollection(NameSpaceManager, TopNode, this);
                 return _protectedRanges;
             }
+        }
+
+        // orabooster-epplus: ignored errors (issue #9)
+        private ExcelIgnoredErrorCollection _ignoredErrors;
+        /// <summary>
+        /// The ranges for which Excel does not show given error checks (the green triangles), for example numbers stored as text.
+        /// </summary>
+        public ExcelIgnoredErrorCollection IgnoredErrors
+        {
+            get
+            {
+                CheckSheetType();
+                if (_ignoredErrors == null)
+                    _ignoredErrors = new ExcelIgnoredErrorCollection(NameSpaceManager, TopNode, this);
+                return _ignoredErrors;
+            }
+        }
+        // orabooster-epplus: moves the ignored-error ranges when rows or columns are inserted or deleted. Does nothing on a sheet without them.
+        private void ShiftIgnoredErrors(int from, int count, bool rows, bool insert)
+        {
+            if (_ignoredErrors == null && !ExistNode("d:ignoredErrors")) return;
+            IgnoredErrors.Shift(from, count, rows, insert);
         }
 
         #region Drawing

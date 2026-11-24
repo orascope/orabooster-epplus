@@ -36,6 +36,7 @@ Full list with file names: [CHANGES.md](CHANGES.md). Every change is also marked
 
 | Version | Change |
 |---|---|
+| 4.5.3.8-ora.3 (not released yet) | Ignored errors: `ws.IgnoredErrors.Add("A2:A100", eErrorChecks.NumberStoredAsText)` hides the green error-check triangles on a range (#9) |
 | 4.5.3.8-ora.2 | Deleting a table no longer gives the next table id 0 or an id in use (#2) |
 | | `Column3D`, `StockHLC` and `StockOHLC` charts; the volume stock charts throw `NotSupportedException` before anything is added (#3) |
 | | Cell addresses without extra strings (#4); loading with `System.IO.Compression` (#5); EPPlusTest runs on .NET 10 (#6) |
@@ -73,7 +74,7 @@ Tests (EPPlusTest, MSTest, `net10.0-windows`):
 dotnet test EPPlusTest/EPPlusTest.Core.csproj -c Release --filter "FullyQualifiedName!=EPPlusTest.WorkSheetTest.DateFunctionsWorkWithDifferentCultureDateFormats_GB"
 ```
 
-1,157 passed, 10 failed, 214 skipped. The 10 failures and the excluded test (it crashes the test host) are the same on EPPlusFree 4.5.3.8; `OraBoosterIssuesTests` covers the fixes in this fork. Some old tests still write files to `C:\temp`.
+1,163 passed, 10 failed, 214 skipped. The 10 failures and the excluded test (it crashes the test host) are the same on EPPlusFree 4.5.3.8; `OraBoosterIssuesTests` covers the fixes and the new features in this fork. Some old tests still write files to `C:\temp`.
 
 Tools:
 - `tools/SaveBench`: `SaveBench [rows] [cols] [runs]` times each stage of a save. `SaveBench variety <path>`, `SaveBench keep <rows> <cols> <path>` and `SaveBench issues <dir>` write sample workbooks; `SaveBench fill` and `SaveBench load <xlsx>` time putting values and loading. Build it with `-p:UsePackage=true` to run the same code against the EPPlusFree 4.5.3.8 package.
