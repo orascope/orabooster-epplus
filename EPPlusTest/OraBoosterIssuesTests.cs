@@ -702,6 +702,39 @@ namespace EPPlusTest
                 Assert.AreEqual("solidFill", string.Join(",", ChildNames((XmlElement)space.SelectNodes("//c:ser", ns)[0].SelectSingleNode("c:spPr/a:ln", ns))));
                 Assert.AreEqual("noFill", string.Join(",", ChildNames((XmlElement)space.SelectNodes("//c:ser", ns)[1].SelectSingleNode("c:spPr/a:ln", ns))), "the other series keeps its line without a fill");
             }
+
+            // the other users of the fill class: the chart area, the plot area and a shape keep one fill too
+            using (var p = new ExcelPackage())
+            {
+                var chart = FormatChart(p, eChartType.ColumnClustered);
+                chart.Fill.Style = eFillStyle.NoFill;
+                chart.Fill.Color = s_red;
+                chart.Border.Fill.Style = eFillStyle.NoFill;
+                chart.Border.Fill.Color = s_blue;
+                chart.PlotArea.Fill.Color = s_green;
+                chart.PlotArea.Fill.Style = eFillStyle.NoFill;
+                var shape = chart.WorkSheet.Drawings.AddShape("Shape", eShapeStyle.Rect);
+                shape.Fill.Style = eFillStyle.NoFill;
+                shape.Fill.Color = s_green;
+                shape.Border.Fill.Style = eFillStyle.NoFill;
+                shape.Border.Fill.Color = s_blue;
+
+                XmlElement space = SavedSheet(p, "xl/charts/chart1.xml");
+                var ns = ChartNs(space);
+                AssertSeriesAreValid(space, "chart and plot area");
+                Assert.AreEqual("C00000", space.SelectSingleNode("c:spPr/a:solidFill/a:srgbClr/@val", ns).Value);
+                Assert.AreEqual("0070C0", space.SelectSingleNode("c:spPr/a:ln/a:solidFill/a:srgbClr/@val", ns).Value);
+                Assert.IsNotNull(space.SelectSingleNode("c:chart/c:plotArea/c:spPr/a:noFill", ns));
+
+                XmlElement drawing = SavedSheet(p, "xl/drawings/drawing1.xml");
+                var dns = new XmlNamespaceManager(drawing.OwnerDocument.NameTable);
+                dns.AddNamespace("xdr", "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing");
+                dns.AddNamespace("a", "http://schemas.openxmlformats.org/drawingml/2006/main");
+                XmlNode sp = drawing.SelectSingleNode("//xdr:sp/xdr:spPr", dns);
+                Assert.AreEqual(1, sp.ChildNodes.OfType<XmlElement>().Count(e => e.LocalName.EndsWith("Fill")), sp.OuterXml);
+                Assert.AreEqual(1, sp.SelectSingleNode("a:ln", dns).ChildNodes.OfType<XmlElement>().Count(e => e.LocalName.EndsWith("Fill")), sp.OuterXml);
+                Assert.AreEqual("00B050", sp.SelectSingleNode("a:solidFill/a:srgbClr/@val", dns).Value);
+            }
         }
 
         // #19: what a series could have before (markers, line colour, explosion, data labels, trendlines) is written in the order of the schema too
