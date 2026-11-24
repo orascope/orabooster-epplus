@@ -589,6 +589,275 @@ namespace EPPlusTest
             }
         }
 
+        // The sheet of the filter tests: a header and ten rows (2 to 11) with a name, a number shown with two decimals,
+        // a date, a note with empty cells in rows 5 and 9, and a group. The same data as in the file Excel filtered itself.
+        static ExcelWorksheet FilterSheet(ExcelPackage a_package, string a_name = "S")
+        {
+            var ws = a_package.Workbook.Worksheets.Add(a_name);
+            string[] heads = { "Name", "Qty", "When", "Note", "Grp" };
+            string[] names = { "alpha", "beta", "gamma", "alpha", "delta", "beta", "Alpha", "epsilon", "gamma", "zeta" };
+            for (int c = 0; c < heads.Length; c++) ws.Cells[1, c + 1].Value = heads[c];
+            for (int i = 1; i <= 10; i++)
+            {
+                ws.Cells[i + 1, 1].Value = names[i - 1];
+                ws.Cells[i + 1, 2].Value = i * 3;
+                ws.Cells[i + 1, 3].Value = new DateTime(2026, 1, i);
+                if (i % 4 != 0) ws.Cells[i + 1, 4].Value = "note " + i;
+                ws.Cells[i + 1, 5].Value = "g" + (i % 3);
+            }
+            ws.Cells["B2:B11"].Style.Numberformat.Format = "0.00";
+            ws.Cells["C2:C11"].Style.Numberformat.Format = "yyyy-mm-dd";
+            return ws;
+        }
+
+        static string HiddenRows(ExcelWorksheet a_ws, int a_from = 2, int a_to = 11)
+        {
+            return string.Join(",", Enumerable.Range(a_from, a_to - a_from + 1).Where(r => a_ws.Row(r).Hidden));
+        }
+
+        static string InnerOf(XmlElement a_element)
+        {
+            return a_element.InnerXml.Replace(" xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"", "");
+        }
+
+        // #17: the filters of a worksheet autofilter are written as Excel writes them, and the rows that do not pass are hidden when the package is saved
+        [TestMethod]
+        public void AutoFilter_of_a_worksheet_writes_the_filters_and_hides_the_rows()
+        {
+            using (var p = new ExcelPackage())
+            {
+                var ws = FilterSheet(p);
+                Assert.IsNull(ws.AutoFilter, "no autofilter yet");
+                ws.Cells["A1:E11"].AutoFilter = true;
+                ExcelAutoFilter f = ws.AutoFilter;
+                Assert.AreEqual("A1:E11", f.Address.Address);
+
+                // the conditions Excel was given in the reference file; it showed the rows 5 and 8
+                f.ShowWhere(4, eFilterOperator.NotEqual, "g0");
+                f.ShowValues(0, "alpha", "gamma");
+                f.ShowWhere(3, eFilterOperator.Equal, "note*", false, eFilterOperator.Equal, "");
+                f.ShowWhere(1, eFilterOperator.GreaterThanOrEqual, 6, true, eFilterOperator.LessThan, 27);
+                Assert.IsTrue(f.IsFiltered(0)); Assert.IsFalse(f.IsFiltered(2));
+                Assert.AreEqual("", HiddenRows(ws), "nothing is hidden before the save");
+
+                XmlElement sheet = SavedSheet(p);
+                XmlElement af = sheet.ChildNodes.OfType<XmlElement>().Single(e => e.LocalName == "autoFilter");
+                Assert.AreEqual(
+                    "<filterColumn colId=\"0\"><filters><filter val=\"alpha\" /><filter val=\"gamma\" /></filters></filterColumn>" +
+                    "<filterColumn colId=\"1\"><customFilters and=\"1\"><customFilter operator=\"greaterThanOrEqual\" val=\"6\" /><customFilter operator=\"lessThan\" val=\"27\" /></customFilters></filterColumn>" +
+                    "<filterColumn colId=\"3\"><customFilters><customFilter val=\"note*\" /><customFilter val=\"\" /></customFilters></filterColumn>" +
+                    "<filterColumn colId=\"4\"><customFilters><customFilter operator=\"notEqual\" val=\"g0\" /></customFilters></filterColumn>",
+                    InnerOf(af));
+                Assert.AreEqual("2,3,4,6,7,9,10,11", HiddenRows(ws));
+
+                using (var r = Reload(p))
+                {
+                    var rs = r.Workbook.Worksheets["S"];
+                    Assert.AreEqual("2,3,4,6,7,9,10,11", HiddenRows(rs));
+                    Assert.IsTrue(rs.AutoFilter.IsFiltered(4));
+
+                    // a filter taken off after a load: its rows show again
+                    rs.AutoFilter.Clear(0);
+                    rs.AutoFilter.Clear(1);
+                    SavedSheet(r);
+                    Assert.AreEqual("4,7,10", HiddenRows(rs), "only the group filter is left");
+                    rs.AutoFilter.Clear();
+                    rs.AutoFilter.Apply();
+                    Assert.AreEqual("", HiddenRows(rs));
+                    Assert.AreEqual("", InnerOf(SavedSheet(r).ChildNodes.OfType<XmlElement>().Single(e => e.LocalName == "autoFilter")));
+                }
+            }
+        }
+
+        // #17: the forms Excel uses for empty and not empty, a number as it is shown, and "equal" to a number
+        [TestMethod]
+        public void AutoFilter_conditions_follow_the_rules_of_Excel()
+        {
+            // The text a cell shows depends on the culture (12.00 or 12,00), and other tests of this project leave another
+            // culture on the thread. The values below are the texts of en-US.
+            var culture = System.Threading.Thread.CurrentThread.CurrentCulture;
+            System.Threading.Thread.CurrentThread.CurrentCulture = new System.Globalization.CultureInfo("en-US");
+            try
+            {
+                AutoFilterConditions();
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = culture;
+            }
+        }
+
+        static void AutoFilterConditions()
+        {
+            using (var p = new ExcelPackage())
+            {
+                // empty cells: rows 5 and 9
+                var ws = FilterSheet(p, "A"); ws.Cells["A1:E11"].AutoFilter = true;
+                ws.AutoFilter.ShowWhere(3, eFilterOperator.NotEqual, null);
+                Assert.AreEqual("<filterColumn colId=\"3\"><customFilters><customFilter operator=\"notEqual\" val=\" \" /></customFilters></filterColumn>",
+                    InnerOf(SavedSheet(p, "xl/worksheets/sheet1.xml").ChildNodes.OfType<XmlElement>().Single(e => e.LocalName == "autoFilter")));
+                Assert.AreEqual("5,9", HiddenRows(ws), "not empty");
+                ws.AutoFilter.ShowValues(3, "note 3", null);
+                ws.AutoFilter.Apply();
+                Assert.AreEqual("2,3,6,7,8,10,11", HiddenRows(ws), "a value and the empty cells");
+                Assert.AreEqual("<filterColumn colId=\"3\"><filters blank=\"1\"><filter val=\"note 3\" /></filters></filterColumn>",
+                    InnerOf(SavedSheet(p, "xl/worksheets/sheet1.xml").ChildNodes.OfType<XmlElement>().Single(e => e.LocalName == "autoFilter")));
+
+                // the number 12 is in row 5 and is shown as 12.00
+                var b = FilterSheet(p, "B"); b.Cells["A1:E11"].AutoFilter = true;
+                b.AutoFilter.ShowValues(1, "12.00", "15.00");
+                b.AutoFilter.Apply();
+                Assert.AreEqual("2,3,4,7,8,9,10,11", HiddenRows(b), "values are the texts the cells show");
+                b.AutoFilter.ShowWhere(1, eFilterOperator.Equal, 12);
+                b.AutoFilter.Apply();
+                Assert.AreEqual("2,3,4,6,7,8,9,10,11", HiddenRows(b), "equal to a number compares the number");
+                Assert.AreEqual("<filterColumn colId=\"1\"><customFilters and=\"1\"><customFilter operator=\"greaterThanOrEqual\" val=\"12\" /><customFilter operator=\"lessThanOrEqual\" val=\"12\" /></customFilters></filterColumn>",
+                    InnerOf(SavedSheet(p, "xl/worksheets/sheet2.xml").ChildNodes.OfType<XmlElement>().Single(e => e.LocalName == "autoFilter")));
+                b.AutoFilter.ShowWhere(1, eFilterOperator.Equal, 12, false, eFilterOperator.Equal, "15.00");
+                b.AutoFilter.Apply();
+                Assert.AreEqual("2,3,4,5,7,8,9,10,11", HiddenRows(b), "written as it is, equal is the text the cell shows: 12 is shown as 12.00");
+                b.AutoFilter.ShowWhere(1, eFilterOperator.NotEqual, 12);
+                b.AutoFilter.Apply();
+                Assert.AreEqual("5", HiddenRows(b), "not equal compares the number");
+
+                // dates, wildcards, texts
+                b.AutoFilter.Clear();
+                b.AutoFilter.ShowWhere(2, eFilterOperator.GreaterThanOrEqual, new DateTime(2026, 1, 6));
+                b.AutoFilter.Apply();
+                Assert.AreEqual("2,3,4,5,6", HiddenRows(b), "from a date");
+                b.AutoFilter.Clear();
+                b.AutoFilter.ShowWhere(0, eFilterOperator.Equal, "?l*a");
+                b.AutoFilter.Apply();
+                Assert.AreEqual("3,4,6,7,9,10,11", HiddenRows(b), "alpha, alpha and Alpha");
+                b.AutoFilter.ShowWhere(0, eFilterOperator.GreaterThan, "c");
+                b.AutoFilter.Apply();
+                Assert.AreEqual("2,3,5,7,8", HiddenRows(b), "after c");
+            }
+        }
+
+        // #17: the sort is recorded where Excel records it: inside the autofilter of a worksheet, after the autofilter of a table
+        [TestMethod]
+        public void AutoFilter_sort_moves_the_rows_and_records_the_sort()
+        {
+            using (var p = new ExcelPackage())
+            {
+                var ws = FilterSheet(p, "Sheet"); ws.Cells["A1:E11"].AutoFilter = true;
+                ws.AutoFilter.ShowWhere(4, eFilterOperator.NotEqual, "g0");
+                ws.AutoFilter.Sort(1, true);
+                Assert.AreEqual(30, Convert.ToInt32(ws.Cells["B2"].Value)); Assert.AreEqual(3, Convert.ToInt32(ws.Cells["B11"].Value));
+                Assert.AreEqual("Name", ws.Cells["A1"].Value, "the row of the buttons stays");
+                XmlElement af = SavedSheet(p).ChildNodes.OfType<XmlElement>().Single(e => e.LocalName == "autoFilter");
+                Assert.AreEqual("<filterColumn colId=\"4\"><customFilters><customFilter operator=\"notEqual\" val=\"g0\" /></customFilters></filterColumn>" +
+                                "<sortState ref=\"A2:E11\"><sortCondition descending=\"1\" ref=\"B2:B11\" /></sortState>", InnerOf(af));
+                // the rows of group g0 after the sort: 27, 18, 9 are in the rows 3, 6, 9
+                Assert.AreEqual("3,6,9", HiddenRows(ws));
+                ws.AutoFilter.Sort(0);
+                Assert.AreEqual("<sortCondition ref=\"A2:A11\" />", InnerOf((XmlElement)SavedSheet(p).ChildNodes.OfType<XmlElement>().Single(e => e.LocalName == "autoFilter").LastChild), "one sort, the last one");
+                ws.AutoFilter.ClearSort();
+                Assert.AreEqual(1, SavedSheet(p).ChildNodes.OfType<XmlElement>().Single(e => e.LocalName == "autoFilter").ChildNodes.Count);
+
+                var ts = FilterSheet(p, "Table");
+                var table = ts.Tables.Add(ts.Cells["A1:E11"], "Table_17");
+                table.AutoFilter.Sort(1, true);
+                table.AutoFilter.ShowValues(0, "alpha", "zeta");
+                Assert.AreEqual("zeta", ts.Cells["A2"].Value);
+                XmlElement tableXml = SavedSheet(p, "xl/tables/table1.xml");
+                string[] names = ChildNames(tableXml);
+                CollectionAssert.AreEqual(new[] { "autoFilter", "sortState", "tableColumns", "tableStyleInfo" }, names, string.Join(",", names));
+                Assert.AreEqual("<filterColumn colId=\"0\"><filters><filter val=\"alpha\" /><filter val=\"zeta\" /></filters></filterColumn>", InnerOf((XmlElement)tableXml.FirstChild));
+                Assert.AreEqual("<sortCondition descending=\"1\" ref=\"B2:B11\" />", InnerOf((XmlElement)tableXml.ChildNodes[1]));
+                Assert.AreEqual("A2:E11", ((XmlElement)tableXml.ChildNodes[1]).GetAttribute("ref"));
+                // sorted by Qty, largest first: zeta 30, gamma 27, epsilon 24, Alpha 21, beta 18, delta 15, alpha 12, gamma 9, beta 6, alpha 3
+                Assert.AreEqual("3,4,6,7,9,10", HiddenRows(ts));
+
+                using (var r = Reload(p))
+                {
+                    Assert.AreEqual("3,4,6,7,9,10", HiddenRows(r.Workbook.Worksheets["Table"]));
+                    Assert.IsTrue(r.Workbook.Worksheets["Table"].Tables[0].AutoFilter.IsFiltered(0));
+                }
+            }
+        }
+
+        // #17: a filter that is not made here is left to Excel; nothing changes on a sheet where the filters were not touched
+        [TestMethod]
+        public void AutoFilter_leaves_other_filters_and_untouched_sheets_alone()
+        {
+            using (var p = new ExcelPackage())
+            {
+                var ws = FilterSheet(p); ws.Cells["A1:E11"].AutoFilter = true;
+                // as a file from Excel with a top 3 filter on Qty: the rows 2 to 8 are hidden
+                XmlElement af = (XmlElement)ws.WorksheetXml.DocumentElement.SelectSingleNode("d:autoFilter", ws.NameSpaceManager);
+                af.InnerXml = "<filterColumn colId=\"1\" xmlns=\"" + ExcelPackage.schemaMain + "\"><top10 val=\"3\" filterVal=\"24\" /></filterColumn>";
+                for (int r = 2; r <= 8; r++) ws.Row(r).Hidden = true;
+
+                var untouched = FilterSheet(p, "Untouched"); untouched.Cells["A1:E11"].AutoFilter = true;
+                untouched.Row(4).Hidden = true;
+                var plain = FilterSheet(p, "Plain");
+                var table = plain.Tables.Add(plain.Cells["A1:E11"], "Table_Plain");
+                table.ShowFilter = false;
+                Assert.IsNull(table.AutoFilter, "no filter buttons");
+
+                using (var r = Reload(p))
+                {
+                    var rs = r.Workbook.Worksheets["S"];
+                    Assert.AreEqual("2,3,4,5,6,7,8", HiddenRows(rs));
+                    Assert.AreEqual("4", HiddenRows(r.Workbook.Worksheets["Untouched"]), "a row hidden by hand stays hidden");
+
+                    // one more filter on another column: the rows of the top 3 filter stay hidden, the new filter hides more
+                    rs.AutoFilter.ShowWhere(4, eFilterOperator.NotEqual, "g0");
+                    XmlElement saved = SavedSheet(r).ChildNodes.OfType<XmlElement>().Single(e => e.LocalName == "autoFilter");
+                    Assert.AreEqual("<filterColumn colId=\"1\"><top10 val=\"3\" filterVal=\"24\" /></filterColumn>" +
+                                    "<filterColumn colId=\"4\"><customFilters><customFilter operator=\"notEqual\" val=\"g0\" /></customFilters></filterColumn>", InnerOf(saved));
+                    Assert.AreEqual("2,3,4,5,6,7,8,10", HiddenRows(rs));
+                    Assert.AreEqual("4", HiddenRows(r.Workbook.Worksheets["Untouched"]));
+                }
+            }
+        }
+
+        // #17: the totals row of a table is below the autofilter: it is not sorted with the rows and not hidden
+        [TestMethod]
+        public void AutoFilter_of_a_table_leaves_the_totals_row_alone()
+        {
+            using (var p = new ExcelPackage())
+            {
+                var ws = FilterSheet(p);
+                var table = ws.Tables.Add(ws.Cells["A1:E11"], "Table_Totals");
+                table.ShowTotal = true;
+                ws.Cells["A12"].Value = "Total";
+                Assert.AreEqual("A1:E12", table.Address.Address);
+                Assert.AreEqual("A1:E11", table.AutoFilter.Address.Address);
+
+                table.AutoFilter.Sort(0, true);
+                table.AutoFilter.ShowValues(0, "nothing has this name");
+                table.AutoFilter.Apply();
+                Assert.AreEqual("Total", ws.Cells["A12"].Value, "not sorted");
+                Assert.AreEqual("zeta", ws.Cells["A2"].Value);
+                Assert.AreEqual("2,3,4,5,6,7,8,9,10,11", HiddenRows(ws, 2, 12), "every row but the totals row");
+            }
+        }
+
+        // #17: wrong arguments, and an autofilter that was removed
+        [TestMethod]
+        public void AutoFilter_refuses_wrong_arguments()
+        {
+            using (var p = new ExcelPackage())
+            {
+                var ws = FilterSheet(p); ws.Cells["A1:E11"].AutoFilter = true;
+                ExcelAutoFilter f = ws.AutoFilter;
+                Assert.ThrowsException<ArgumentOutOfRangeException>(() => f.ShowValues(5, "x"));
+                Assert.ThrowsException<ArgumentOutOfRangeException>(() => f.ShowWhere(-1, eFilterOperator.Equal, 1));
+                Assert.ThrowsException<ArgumentOutOfRangeException>(() => f.Sort(9));
+                Assert.ThrowsException<ArgumentException>(() => f.ShowValues(0));
+                f.ShowValues(0, "alpha");
+                ws.Cells["A1:E11"].AutoFilter = false;
+                Assert.IsNull(ws.AutoFilter);
+                Assert.ThrowsException<InvalidOperationException>(() => f.ShowValues(0, "beta"));
+                // saved without the autofilter: the filter that was set on it does nothing
+                Assert.IsFalse(ChildNames(SavedSheet(p)).Contains("autoFilter"));
+                Assert.AreEqual("", HiddenRows(ws));
+            }
+        }
+
         // #14: AutoFitColumns keeps what it measured and counts digits as one character when the font allows it.
         // The width of a column must still be exactly the width of its widest cell measured on its own.
         [TestMethod]

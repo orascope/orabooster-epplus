@@ -149,7 +149,7 @@ namespace OfficeOpenXml.Table
         private void init()
         {
             TopNode = TableXml.DocumentElement;
-            SchemaNodeOrder = new string[] { "autoFilter", "tableColumns", "tableStyleInfo" };
+            SchemaNodeOrder = new string[] { "autoFilter", "sortState", "tableColumns", "tableStyleInfo" }; // orabooster-epplus: sortState (issue #17), so that an autofilter made after a sort goes before it
         }
         private string GetStartXml(string name, int tblId)
         {
@@ -423,6 +423,24 @@ namespace OfficeOpenXml.Table
                     throw(new InvalidOperationException("Filter can only be applied when ShowHeader is set to true"));
                 }
             }
+        }
+        // orabooster-epplus: issue #17
+        private ExcelAutoFilter _autoFilter;
+        /// <summary>
+        /// The filters and the sort of the filter buttons of the table. Null when the table has no filter buttons (ShowFilter).
+        /// </summary>
+        public ExcelAutoFilter AutoFilter
+        {
+            get
+            {
+                if (!ShowFilter) return null;
+                if (_autoFilter == null) _autoFilter = new ExcelAutoFilter(WorkSheet, this);
+                return _autoFilter;
+            }
+        }
+        internal void ApplyAutoFilterIfChanged()
+        {
+            if (_autoFilter != null) _autoFilter.ApplyIfChanged();
         }
         const string TOTALSROWCOUNT_PATH = "@totalsRowCount";
         const string TOTALSROWSHOWN_PATH = "@totalsRowShown";
