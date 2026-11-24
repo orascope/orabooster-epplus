@@ -79,6 +79,7 @@ dotnet test EPPlusTest/EPPlusTest.Core.csproj -c Release --filter "FullyQualifie
 Tools:
 - `tools/SaveBench`: `SaveBench [rows] [cols] [runs]` times each stage of a save. `SaveBench variety <path>`, `SaveBench keep <rows> <cols> <path>` and `SaveBench issues <dir>` write sample workbooks; `SaveBench fill` and `SaveBench load <xlsx>` time putting values and loading. Build it with `-p:UsePackage=true` to run the same code against the EPPlusFree 4.5.3.8 package.
 - `tools/SaveBench/compare-xlsx.ps1 -A a.xlsx -B b.xlsx`: compares two workbooks part by part (entry names and uncompressed bytes).
+- `tools/SaveBench/open-in-excel.ps1 -Dir <folder>`: opens every workbook of a folder in a hidden Excel and reports the ones that need a repair (for the folder of `SaveBench issues`).
 
 ## Source of the OraBooster binaries
 
