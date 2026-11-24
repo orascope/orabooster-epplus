@@ -1,6 +1,6 @@
 # orabooster-epplus
 
-A fork of **EPPlusFree 4.5.3.8** (EPPlus 4.5, LGPL) used by [OraBooster](https://www.orascope.net), with a faster save path.
+A fork of **EPPlusFree 4.5.3.8** (EPPlus 4.5, LGPL) used by [OraBooster](https://www.orascope.net), with a faster save path, fixes, and the features OraBooster needed that EPPlus 4.5 does not have.
 
 It is not an official EPPlus release and is not supported by EPPlus Software AB or by the EPPlusFree author.
 It is maintained only as far as OraBooster needs it.
@@ -25,7 +25,7 @@ EPPlus 5 and later (https://github.com/EPPlusSoftware/EPPlus) are under the Poly
 The assembly is `OraBooster.EPPlus.dll`; the namespace is `OfficeOpenXml` as in EPPlus 4.5 and EPPlusFree, so code written for EPPlusFree 4.5.3.8 compiles unchanged.
 
 ```xml
-<PackageReference Include="OraBooster.EPPlus" Version="4.5.3.8-ora.2" />
+<PackageReference Include="OraBooster.EPPlus" Version="4.5.3.8-ora.3" />
 ```
 
 The package is not on nuget.org. Build it (below) or take the `.nupkg` from the [releases](https://github.com/orascope/orabooster-epplus/releases), and add the folder as a package source.
@@ -36,12 +36,13 @@ Full list with file names: [CHANGES.md](CHANGES.md). Every change is also marked
 
 | Version | Change |
 |---|---|
-| 4.5.3.8-ora.3 (not released yet) | Ignored errors: `ws.IgnoredErrors.Add("A2:A100", eErrorChecks.NumberStoredAsText)` hides the green error-check triangles on a range (#9) |
+| 4.5.3.8-ora.3 | Ignored errors: `ws.IgnoredErrors.Add("A2:A100", eErrorChecks.NumberStoredAsText)` hides the green error-check triangles on a range (#9) |
 | | Stock charts with volume: `AddChart(name, eChartType.StockVHLC)` and `StockVOHLC`; add the series volume first, then (open,) high, low, close (#11) |
 | | `AutoFitColumns` 3 to 7 times faster, with the same widths (#14) |
 | | Filters and sort of an autofilter: `ws.AutoFilter.ShowValues(0, "alpha")`, `table.AutoFilter.ShowWhere(1, eFilterOperator.GreaterThan, 5)`, `.Sort(1, true)`; the rows that do not pass are hidden when the package is saved (#17) |
 | | Chart series: `serie.Fill` / `serie.Border` no longer make a file Excel does not open on scatter and stock charts, and are written in the order of the schema; `serie.DataPoints.Add(2).Fill.Color` for one point; `serie.AddErrorBars(...)` (#19) |
 | | The chart types of Excel 2016: `ws.Drawings.AddExtendedChart("name", eChartExType.Waterfall)` and `Treemap`, `Sunburst`, `Histogram`, `Pareto`, `BoxWhisker`, `Funnel`, then `chart.Series.Add("B2:B20", "A2:A20")` (#21) |
+| | Fixes: `FormulaR1C1` in cultures with another minus sign (#23); loaded charts list each chart type once and series get free numbers (#12); a number that is not a date in a date format no longer stops `AutoFitColumns` (#15); the whole test suite passes |
 | 4.5.3.8-ora.2 | Deleting a table no longer gives the next table id 0 or an id in use (#2) |
 | | `Column3D`, `StockHLC` and `StockOHLC` charts; the volume stock charts throw `NotSupportedException` before anything is added (#3) |
 | | Cell addresses without extra strings (#4); loading with `System.IO.Compression` (#5); EPPlusTest runs on .NET 10 (#6) |
@@ -52,6 +53,7 @@ Full list with file names: [CHANGES.md](CHANGES.md). Every change is also marked
 
 **Output.** For the same workbook (outside the cases fixed in ora.2), every part of the saved package (sheets, styles, shared strings, tables, drawings, properties) is byte-for-byte the same as EPPlusFree 4.5.3.8. Only the zip compression differs; files are a few percent larger.
 Since ora.2 packages are also read with `System.IO.Compression`; a load-and-save copy is part by part the same as with EPPlusFree.
+ora.3 saves a workbook that uses none of its new features and none of its fixed cases exactly as ora.2; [CHANGES.md](CHANGES.md) lists what a caller can see differently.
 
 **Speed.** `tools/SaveBench`, 50,000 rows x 15 columns set cell by cell, a table and AutoFit on 1,000 rows, the same PC:
 

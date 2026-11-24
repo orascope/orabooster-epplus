@@ -1,8 +1,18 @@
 # Changes in orabooster-epplus
 
-## 4.5.3.8-ora.3 (not released yet, OraScope Co.,Ltd.)
+## 4.5.3.8-ora.3 (2026-11-25, OraScope Co.,Ltd.)
 
-New features, taken one at a time from the candidate list in #8. They are written from ECMA-376 and the Microsoft Open Specifications and checked against Excel. A workbook that does not use them is saved exactly as by ora.2.
+New features, taken one at a time from the candidate list in #8, and the bugs found on the way. The features are written from ECMA-376 and the Microsoft Open Specifications and checked against Excel.
+
+A workbook that uses none of the new features and none of the fixed cases is saved exactly as by ora.2: the samples of `tools/SaveBench` (`variety`, `keep`, `charts` with the 73 older chart types, the issue samples) were compared part by part before every merge. What a caller of ora.2 can see differently:
+
+- `serie.Fill`, `serie.Border`, the line colour, the data labels and the trendlines of a chart series are written at another place in the series (the order of the schema), and a fill or line has one fill (#19);
+- a loaded chart has each chart type once in `PlotArea.ChartTypes`, and a loaded chart type that is combined with another one has its chart type (#12);
+- a stock chart with up/down bars is loaded as `StockOHLC` (#11);
+- the series of a chart with several chart types are numbered without gaps (#12);
+- `FormulaR1C1` has the ASCII minus sign in every culture (#23);
+- a number that is not a date in a date format shows as `########` instead of throwing (#15);
+- `AddChart` with `StockVHLC` or `StockVOHLC` makes the chart instead of throwing (#11).
 
 - **#9** Ignored errors: `ExcelWorksheet.IgnoredErrors` (new `ExcelIgnoredError.cs`: `ExcelIgnoredErrorCollection`, `ExcelIgnoredError`, `eErrorChecks`).
   Lists ranges for which Excel does not show given error checks (the green triangles), the `ignoredErrors` element of the worksheet part:
