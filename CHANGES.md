@@ -27,7 +27,9 @@ New features, taken one at a time from the candidate list in #8. They are writte
   - Checked in Excel 16 with `SaveBench issues` and `open-in-excel.ps1` (which now prints the chart type and the chart groups of every chart): the files open without a repair, on a worksheet and on a chart sheet `ChartType` is `xlStockVHLC` (90) / `xlStockVOHLC` (91), the first chart group has the one volume series on the primary axes, the second has the price series on the secondary axes with `HasHiLoLines` on and `HasUpDownBars` on for VOHLC. The same charts made by Excel itself give the same lines, and the exported pictures show the columns, the high-low lines and the up/down bars.
   - `variety`, `keep` and the issue 2, 3 and 9 samples of `SaveBench` are part by part the same as before.
   - Found on the way, not fixed here: a loaded chart lists its first chart type twice in `PlotArea.ChartTypes` (#12).
-  - Tests: 4 new, 1 removed (the one that expected the exception). Whole suite: 1,169 passed, 10 failed, 214 skipped (the same 10 as before).
+  - A number of series that does not fit the chart type does not break the file: all four stock chart types with 0 to 6 series (28 workbooks) open in Excel without a repair. Excel just draws what it can.
+  - After a load the series are added to the chart they are added to: the routing of the series is set up only by `AddChart`. A copy of the worksheet has the whole chart.
+  - Tests: 5 new, 1 removed (the one that expected the exception). Whole suite: 1,170 passed, 10 failed, 214 skipped (the same 10 as before).
 
 ## 4.5.3.8-ora.2 (2026-11-24, OraScope Co.,Ltd.)
 

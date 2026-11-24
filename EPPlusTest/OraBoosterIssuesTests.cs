@@ -292,6 +292,32 @@ namespace EPPlusTest
             }
         }
 
+        // #11: a copy of the worksheet has the whole chart, both parts
+        [TestMethod]
+        public void Volume_stock_chart_is_copied_with_the_worksheet()
+        {
+            using (var p = new ExcelPackage())
+            {
+                var ws = StockSheet(p, false);
+                var chart = ws.Drawings.AddChart("C1", eChartType.StockVHLC);
+                for (int c = 2; c <= 5; c++) chart.Series.Add(ExcelCellBase.GetAddress(2, c, 6, c), "A2:A6");
+                var copy = p.Workbook.Worksheets.Add("Copy", ws);
+                Assert.AreEqual(1, copy.Drawings.Count);
+                using (var r = Reload(p))
+                {
+                    foreach (string name in new[] { "S", "Copy" })
+                    {
+                        ExcelChart[] types = ((ExcelChart)r.Workbook.Worksheets[name].Drawings[0]).PlotArea.ChartTypes.Distinct().ToArray();
+                        Assert.AreEqual(2, types.Length, name);
+                        Assert.AreEqual(eChartType.ColumnClustered, types[0].ChartType, name);
+                        Assert.AreEqual(1, types[0].Series.Count, name);
+                        Assert.AreEqual(eChartType.StockHLC, types[1].ChartType, name);
+                        Assert.AreEqual(3, types[1].Series.Count, name);
+                    }
+                }
+            }
+        }
+
         // #11: a loaded stock chart with up/down bars is an open-high-low-close chart (it was reported as high-low-close)
         [TestMethod]
         public void Loaded_stock_chart_with_an_open_series_is_reported_as_StockOHLC()

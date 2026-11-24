@@ -256,11 +256,17 @@ namespace OfficeOpenXml.Drawing
         #region Add functions
             /// <summary>
             /// Add a new chart to the worksheet.
-            /// Do not support Bubble-, Radar-, Stock- or Surface charts. 
+            /// Do not support Bubble-, Radar-, Stock- or Surface charts.
             /// </summary>
+            /// <remarks>
+            /// orabooster-epplus: the stock charts are supported. Add their series in the order Excel uses:
+            /// StockHLC high, low, close; StockOHLC open, high, low, close; StockVHLC and StockVOHLC the volume first, then the same.
+            /// For the two charts with volume the chart that is returned is the column chart of the volume (ChartType is ColumnClustered);
+            /// the series after the first go to its stock chart, PlotArea.ChartTypes[1], which uses the secondary axes.
+            /// </remarks>
             /// <param name="Name"></param>
             /// <param name="ChartType">Type of chart</param>
-            /// <param name="PivotTableSource">The pivottable source for a pivotchart</param>    
+            /// <param name="PivotTableSource">The pivottable source for a pivotchart</param>
             /// <returns>The chart</returns>
             public ExcelChart AddChart(string Name, eChartType ChartType, ExcelPivotTable PivotTableSource)
             {
@@ -279,7 +285,7 @@ namespace OfficeOpenXml.Drawing
                 }
                 if (Worksheet is ExcelChartsheet && _drawings.Count > 0)
                 {
-                    throw new InvalidOperationException("Chart Worksheets can't have more than one chart");
+                    throw new InvalidOperationException("Chart Worksheets can't have more than one chart");                
                 }
                 XmlElement drawNode = CreateDrawingXml();
 
