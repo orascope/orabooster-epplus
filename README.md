@@ -74,7 +74,7 @@ Tests (EPPlusTest, MSTest, `net10.0-windows`):
 dotnet test EPPlusTest/EPPlusTest.Core.csproj -c Release --filter "FullyQualifiedName!=EPPlusTest.WorkSheetTest.DateFunctionsWorkWithDifferentCultureDateFormats_GB"
 ```
 
-1,163 passed, 10 failed, 214 skipped. The 10 failures and the excluded test (it crashes the test host) are the same on EPPlusFree 4.5.3.8; `OraBoosterIssuesTests` covers the fixes and the new features in this fork. Some old tests still write files to `C:\temp`.
+1,166 passed, 10 failed, 214 skipped. The 10 failures and the excluded test (it crashes the test host) are the same on EPPlusFree 4.5.3.8; `OraBoosterIssuesTests` covers the fixes and the new features in this fork. Some old tests still write files to `C:\temp`.
 
 Tools:
 - `tools/SaveBench`: `SaveBench [rows] [cols] [runs]` times each stage of a save. `SaveBench variety <path>`, `SaveBench keep <rows> <cols> <path>` and `SaveBench issues <dir>` write sample workbooks; `SaveBench fill` and `SaveBench load <xlsx>` time putting values and loading. Build it with `-p:UsePackage=true` to run the same code against the EPPlusFree 4.5.3.8 package.

@@ -12,7 +12,10 @@ New features, taken one at a time from the candidate list in #8. They are writte
   - Whole rows and columns are written with their first and last cell (`D1:D1048576`), as Excel does.
   - Checked in Excel 16: the sample of `SaveBench issues` (table, chart and comment on the same sheet) opens without a repair; `Range.Errors(xlNumberAsText).Ignore` and `Errors(xlEvaluateToError).Ignore` are true on the listed ranges and false on the same values next to them; Excel keeps the entries when it saves the file and adds its own in the same form. A copy with the element out of schema order does not open, so the check tells the difference.
   - `variety`, `keep` and the issue 2 and 3 samples of `SaveBench` are part by part the same as with ora.2.
-  - Tests: 6 new in `OraBoosterIssuesTests`. Whole suite: 1,163 passed, 10 failed, 214 skipped (the same 10 as before).
+  - The element is placed after the last element that the schema puts before it, not before the first later element the library knows: a loaded sheet whose later elements are not in the node order list (`controls`, `drawingHF`) still gets it at the right place.
+  - An entry of a loaded file whose address cannot be read is left as it is and does not stop an insert or delete. `Add` takes a range object with several ranges and refuses one of another worksheet; an item cannot be left without a check (remove it instead).
+  - `tools/SaveBench/open-in-excel.ps1` (new): opens every workbook of a folder in a hidden Excel and reports the ones that need a repair; used for the check above.
+  - Tests: 9 new in `OraBoosterIssuesTests`. Whole suite: 1,166 passed, 10 failed, 214 skipped (the same 10 as before).
 
 ## 4.5.3.8-ora.2 (2026-11-24, OraScope Co.,Ltd.)
 

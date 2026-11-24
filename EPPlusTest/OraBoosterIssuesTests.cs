@@ -424,5 +424,72 @@ namespace EPPlusTest
                 }
             }
         }
+
+        // #9: the element is placed by the elements before it, so later elements that the library does not know do not matter
+        [TestMethod]
+        public void Ignored_errors_come_before_later_elements_the_library_does_not_know()
+        {
+            using (var p = new ExcelPackage())
+            {
+                var ws = p.Workbook.Worksheets.Add("S");
+                ws.Cells["A1"].Value = "001";
+                XmlElement top = ws.WorksheetXml.DocumentElement;
+                // sheetCalcPr comes right after sheetData and before ignoredErrors; controls comes after ignoredErrors. Neither is in the node order list of the worksheet.
+                XmlNode sheetData = top.SelectSingleNode("d:sheetData", ws.NameSpaceManager);
+                top.InsertAfter(top.OwnerDocument.CreateElement("sheetCalcPr", ExcelPackage.schemaMain), sheetData);
+                top.AppendChild(top.OwnerDocument.CreateElement("controls", ExcelPackage.schemaMain));
+
+                ws.IgnoredErrors.Add("A1", eErrorChecks.NumberStoredAsText);
+                string[] names = ChildNames(SavedSheet(p));
+                int ix = Array.IndexOf(names, "ignoredErrors");
+                Assert.IsTrue(ix > Array.IndexOf(names, "sheetCalcPr") && ix > Array.IndexOf(names, "pageMargins"), string.Join(",", names));
+                Assert.IsTrue(ix < Array.IndexOf(names, "controls"), string.Join(",", names));
+            }
+        }
+
+        // #9: a range object with several ranges, a range of another sheet, and taking every check away
+        [TestMethod]
+        public void Ignored_errors_take_range_objects_of_their_own_sheet()
+        {
+            using (var p = new ExcelPackage())
+            {
+                var ws = p.Workbook.Worksheets.Add("S");
+                var other = p.Workbook.Worksheets.Add("Other");
+                ws.Cells["A1"].Value = 1; other.Cells["A1"].Value = 1;
+
+                var a = ws.IgnoredErrors.Add(ws.Cells["A1:A3,C1:C3"], eErrorChecks.NumberStoredAsText);
+                Assert.AreEqual("A1:A3 C1:C3", a.Address);
+                var b = ws.IgnoredErrors.Add(new ExcelAddress("E:E"), eErrorChecks.EvalError);
+                Assert.AreEqual("E1:E1048576", b.Address);
+                Assert.ThrowsException<ArgumentException>(() => ws.IgnoredErrors.Add(other.Cells["A1"], eErrorChecks.All));
+                Assert.AreEqual(2, ws.IgnoredErrors.Count);
+
+                Assert.ThrowsException<ArgumentException>(() => a.Checks = eErrorChecks.None);
+                Assert.AreEqual(eErrorChecks.NumberStoredAsText, a.Checks);
+            }
+        }
+
+        // #9: an entry of a loaded file whose address cannot be read is left alone; inserting and deleting still work
+        [TestMethod]
+        public void Ignored_errors_with_an_unreadable_address_do_not_stop_an_insert()
+        {
+            using (var p = new ExcelPackage())
+            {
+                var ws = p.Workbook.Worksheets.Add("S");
+                ws.Cells["A1"].Value = 1; ws.Cells["A9"].Value = 2;
+                ws.IgnoredErrors.Add("A5:A9", eErrorChecks.NumberStoredAsText);
+                var odd = ws.IgnoredErrors.Add("B1", eErrorChecks.EvalError);
+                odd.Node.SetAttribute("sqref", "NotARange");
+                using (var r = Reload(p))
+                {
+                    var rs = r.Workbook.Worksheets["S"];
+                    rs.InsertRow(2, 3);
+                    rs.DeleteColumn(4, 1);
+                    Assert.AreEqual("A8:A12", rs.IgnoredErrors[0].Address);
+                    Assert.AreEqual("NotARange", rs.IgnoredErrors[1].Address);
+                    Assert.AreEqual(eErrorChecks.EvalError, rs.IgnoredErrors[1].Checks);
+                }
+            }
+        }
     }
 }

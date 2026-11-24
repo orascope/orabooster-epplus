@@ -99,6 +99,7 @@ namespace OfficeOpenXml
             }
             set
             {
+                if ((value & eErrorChecks.All) == 0) throw new ArgumentException("No check to ignore. To show every check again, remove the item from the collection.", "value");
                 // sqref stays first, then the checks in the order of the schema
                 string sqref = Node.GetAttribute("sqref");
                 foreach (var a in s_attributes) Node.RemoveAttribute(a.Value);
@@ -115,7 +116,15 @@ namespace OfficeOpenXml
             return ParseAreas(Node.GetAttribute("sqref"));
         }
 
-        internal void SetAreas(List<ExcelAddressBase> areas)
+        internal void SetAreas(IEnumerable<ExcelAddressBase> areas)
+        {
+            Node.SetAttribute("sqref", ToSqref(areas));
+        }
+
+        /// <summary>
+        /// The ranges as they are written in the file: separated by a space, each with its first and last cell.
+        /// </summary>
+        internal static string ToSqref(IEnumerable<ExcelAddressBase> areas)
         {
             var sb = new StringBuilder();
             foreach (var a in areas)
@@ -128,7 +137,7 @@ namespace OfficeOpenXml
                     sb.Append(':').Append(ExcelCellBase.GetAddress(a._toRow, a._toCol));
                 }
             }
-            Node.SetAttribute("sqref", sb.ToString());
+            return sb.ToString();
         }
 
         internal static List<ExcelAddressBase> ParseAreas(string address)
@@ -165,10 +174,23 @@ namespace OfficeOpenXml
     {
         const string PATH = "d:ignoredErrors";
         readonly List<ExcelIgnoredError> _list = new List<ExcelIgnoredError>();
+        readonly ExcelWorksheet _ws;
+
+        // The elements that the schema (CT_Worksheet) puts before ignoredErrors. A new ignoredErrors element goes after the last of them.
+        // CreateNode looks for the first later element it knows instead, and appends at the end when it finds none:
+        // that is too late on a sheet whose later elements are not in its list (controls, drawingHF, mc:AlternateContent).
+        static readonly HashSet<string> s_before = new HashSet<string>
+        {
+            "sheetPr", "dimension", "sheetViews", "sheetFormatPr", "cols", "sheetData", "sheetCalcPr", "sheetProtection", "protectedRanges",
+            "scenarios", "autoFilter", "sortState", "dataConsolidate", "customSheetViews", "mergeCells", "phoneticPr", "conditionalFormatting",
+            "dataValidations", "hyperlinks", "printOptions", "pageMargins", "pageSetup", "headerFooter", "rowBreaks", "colBreaks",
+            "customProperties", "cellWatches"
+        };
 
         internal ExcelIgnoredErrorCollection(XmlNamespaceManager nsm, XmlNode topNode, ExcelWorksheet ws)
             : base(nsm, topNode)
         {
+            _ws = ws;
             SchemaNodeOrder = ws.SchemaNodeOrder;
             foreach (XmlNode n in topNode.SelectNodes(PATH + "/d:ignoredError", nsm))
             {
@@ -187,7 +209,7 @@ namespace OfficeOpenXml
             var areas = ExcelIgnoredError.ParseAreas(address);
             if ((checks & eErrorChecks.All) == 0) throw new ArgumentException("No check to ignore", "checks");
 
-            XmlNode parent = TopNode.SelectSingleNode(PATH, NameSpaceManager) ?? CreateNode(PATH);
+            XmlNode parent = GetOrCreateParent();
             XmlElement node = TopNode.OwnerDocument.CreateElement("ignoredError", ExcelPackage.schemaMain);
             parent.AppendChild(node);
             var item = new ExcelIgnoredError(node);
@@ -200,12 +222,35 @@ namespace OfficeOpenXml
         /// <summary>
         /// Adds a range for which the given checks are not shown.
         /// </summary>
-        /// <param name="address">A range of this worksheet</param>
+        /// <param name="address">A range of this worksheet, for example ws.Cells["A2:A100"]. It can hold several ranges.</param>
         /// <param name="checks">The checks to ignore</param>
         public ExcelIgnoredError Add(ExcelAddressBase address, eErrorChecks checks)
         {
             if (address == null) throw new ArgumentNullException("address");
-            return Add(ExcelCellBase.GetAddress(address._fromRow, address._fromCol, address._toRow, address._toCol), checks);
+            if (!string.IsNullOrEmpty(address.WorkSheet) && !address.WorkSheet.Equals(_ws.Name, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException("The address is on another worksheet: " + address.WorkSheet, "address");
+            }
+            var areas = new List<ExcelAddressBase>();
+            if (address.Addresses != null && address.Addresses.Count > 0) areas.AddRange(address.Addresses);
+            else areas.Add(address);
+            return Add(ExcelIgnoredError.ToSqref(areas), checks);
+        }
+
+        XmlNode GetOrCreateParent()
+        {
+            XmlNode parent = TopNode.SelectSingleNode(PATH, NameSpaceManager);
+            if (parent != null) return parent;
+
+            XmlNode last = null;
+            foreach (XmlNode child in TopNode.ChildNodes)
+            {
+                if (child.NodeType == XmlNodeType.Element && child.NamespaceURI == ExcelPackage.schemaMain && s_before.Contains(child.LocalName)) last = child;
+            }
+            parent = TopNode.OwnerDocument.CreateElement("ignoredErrors", ExcelPackage.schemaMain);
+            if (last == null) TopNode.PrependChild(parent);
+            else TopNode.InsertAfter(parent, last);
+            return parent;
         }
 
         /// <summary>
@@ -257,8 +302,18 @@ namespace OfficeOpenXml
             for (int i = _list.Count - 1; i >= 0; i--)
             {
                 ExcelIgnoredError item = _list[i];
+                List<ExcelAddressBase> areas;
+                try
+                {
+                    areas = item.GetAreas();
+                }
+                catch (ArgumentException)
+                {
+                    // an entry of a loaded file with an address that cannot be read here: left as it is, the insert or delete must not fail on it
+                    continue;
+                }
                 var moved = new List<ExcelAddressBase>();
-                foreach (ExcelAddressBase a in item.GetAreas())
+                foreach (ExcelAddressBase a in areas)
                 {
                     ExcelAddressBase n = insert
                         ? (rows ? a.AddRow(from, count) : a.AddColumn(from, count))
