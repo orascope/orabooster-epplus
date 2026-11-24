@@ -6,6 +6,7 @@
 //   SaveBench variety <path>                  write a workbook with many value kinds (see Variety.cs)
 //   SaveBench issues <dir>                    write one workbook per fixed issue, to open in Excel (see Issues.cs)
 //   SaveBench autofit | autofitsample | autofitrandom   AutoFitColumns: time and widths (see AutoFitBench.cs)
+//   SaveBench charts <path>                   write one plain chart of every chart type, to compare two builds (see Charts.cs)
 //   SB_FAST=1                                 benchmark with CompressionLevel.BestSpeed
 using System;
 using System.Diagnostics;
@@ -19,6 +20,7 @@ static class Program
     {
         if (args.Length == 2 && args[0] == "variety") { Variety.Write(args[1]); return 0; }
         if (args.Length == 2 && args[0] == "issues") { Issues.Write(args[1]); return 0; }
+        if (args.Length == 2 && args[0] == "charts") { Charts.Write(args[1]); return 0; }
         if (args.Length >= 2 && args[0] == "load") { LoadBench.Run(args[1], args.Length > 2 ? int.Parse(args[2]) : 3, args.Length > 3 ? args[3] : null); return 0; }
         if (args.Length >= 1 && args[0] == "fill") { FillBench.Run(args.Length > 1 ? int.Parse(args[1]) : 50000, args.Length > 2 ? int.Parse(args[2]) : 15); return 0; }
         if (args.Length >= 1 && args[0] == "autofit") { AutoFitBench.Run(args.Length > 1 ? int.Parse(args[1]) : 50000, args.Length > 2 ? int.Parse(args[2]) : 15, args.Length > 3 ? int.Parse(args[3]) : 3); return 0; }
