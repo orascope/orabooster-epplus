@@ -127,6 +127,70 @@ static class Issues
             p.SaveAs(new FileInfo(Path.Combine(a_dir, "issue9_ignored_errors.xlsx")));
         }
 
+        // #21: the chart types of Excel 2016, all on one sheet, in the order of eChartExType. open-in-excel.ps1 prints the type
+        // Excel gives each: 119 waterfall, 117 treemap, 120 sunburst, 118 histogram, 122 Pareto, 121 box and whisker, 123 funnel.
+        using (var p = new ExcelPackage())
+        {
+            var ws = p.Workbook.Worksheets.Add("S");
+            // A: stage, B: amount (gains and losses, with totals in rows 2 and 8), D-E: owner and segment, F: size, H: elapsed times, J: group for the box plot
+            string[] stages = { "Start", "Parse", "Execute", "Fetch", "Wait", "Other", "Total" };
+            double[] amounts = { 100, 20, 45, -15, 30, -10, 170 };
+            ws.Cells["A1"].Value = "Stage"; ws.Cells["B1"].Value = "Seconds";
+            for (int i = 0; i < stages.Length; i++) { ws.Cells[i + 2, 1].Value = stages[i]; ws.Cells[i + 2, 2].Value = amounts[i]; }
+            // A11:B16: steps with falling counts, for the funnel and the Pareto chart
+            string[] steps = { "Step", "Connected", "Parsed", "Executed", "Fetched", "Committed" };
+            object[] counts = { "Sessions", 1000, 800, 650, 400, 250 };
+            for (int i = 0; i < steps.Length; i++) { ws.Cells[i + 11, 1].Value = steps[i]; ws.Cells[i + 11, 2].Value = counts[i]; }
+            string[] owners = { "SYS", "SYS", "SYS", "APP", "APP", "APP", "HR", "HR" };
+            string[] segments = { "OBJ$", "SOURCE$", "IDL_UB1$", "ORDERS", "ORDER_ITEMS", "CUSTOMERS", "EMPLOYEES", "JOBS" };
+            double[] sizes = { 120, 300, 80, 900, 1500, 250, 40, 5 };
+            ws.Cells["D1"].Value = "Owner"; ws.Cells["E1"].Value = "Segment"; ws.Cells["F1"].Value = "MB";
+            for (int i = 0; i < owners.Length; i++) { ws.Cells[i + 2, 4].Value = owners[i]; ws.Cells[i + 2, 5].Value = segments[i]; ws.Cells[i + 2, 6].Value = sizes[i]; }
+            var rnd = new Random(21);
+            ws.Cells["H1"].Value = "Elapsed"; ws.Cells["J1"].Value = "Module"; ws.Cells["K1"].Value = "Elapsed";
+            for (int r = 2; r <= 61; r++)
+            {
+                ws.Cells[r, 8].Value = Math.Round(5 + rnd.NextDouble() * rnd.NextDouble() * 95, 1);
+                ws.Cells[r, 10].Value = "module " + (r % 3 + 1);
+                ws.Cells[r, 11].Value = Math.Round(10 + (r % 3) * 8 + rnd.NextDouble() * 30, 1);
+            }
+
+            int row = 0;
+            foreach (eChartExType type in Enum.GetValues(typeof(eChartExType)))
+            {
+                var chart = ws.Drawings.AddExtendedChart("Chart_" + type, type);
+                ExcelChartExSerie s;
+                switch (type)
+                {
+                    case eChartExType.Waterfall:
+                        s = chart.Series.Add("B2:B8", "A2:A8");
+                        s.Subtotals = new[] { 0, 6 };
+                        break;
+                    case eChartExType.Treemap:
+                    case eChartExType.Sunburst:
+                        s = chart.Series.Add("F2:F9", "D2:E9");
+                        break;
+                    case eChartExType.Histogram:
+                        s = chart.Series.Add("H2:H61", null);
+                        chart.BinWidth = 10;
+                        break;
+                    case eChartExType.BoxWhisker:
+                        s = chart.Series.Add("K2:K61", "J2:J61");
+                        break;
+                    default: // Pareto and funnel: the steps
+                        s = chart.Series.Add("B12:B16", "A12:A16");
+                        break;
+                }
+                s.HeaderAddress = type == eChartExType.Treemap || type == eChartExType.Sunburst ? ws.Cells["F1"] : type == eChartExType.Histogram ? ws.Cells["H1"] : type == eChartExType.BoxWhisker ? ws.Cells["K1"]
+                    : type == eChartExType.Waterfall ? ws.Cells["B1"] : ws.Cells["B11"];
+                chart.Title = type.ToString();
+                chart.SetPosition(row, 0, 12, 0);
+                chart.SetSize(480, 300);
+                row += 16;
+            }
+            p.SaveAs(new FileInfo(Path.Combine(a_dir, "issue21_chartex.xlsx")));
+        }
+
         // #19: the format of series and of single points, and error bars, one chart type per sheet (the sheet has the name of the type).
         // In every chart: series 1 has the fill C00000 and the border or line 0070C0, its third point has the fill (or the marker
         // fill) 00B050, and it has error bars where the chart type has them. chart-format-in-excel.ps1 reads these back from Excel.

@@ -308,6 +308,31 @@ namespace OfficeOpenXml.Drawing
                 return AddChart(Name, ChartType, null);
             }
             /// <summary>
+            /// orabooster-epplus (issue #21): adds a chart of one of the types that Excel 2016 added:
+            /// waterfall, treemap, sunburst, histogram, Pareto, box and whisker, funnel.
+            /// Older versions of Excel show a text box in its place. Not for chart sheets.
+            /// </summary>
+            /// <param name="Name">The name of the drawing</param>
+            /// <param name="ChartType">The type of the chart</param>
+            /// <returns>The chart</returns>
+            public ExcelChartEx AddExtendedChart(string Name, eChartExType ChartType)
+            {
+                if (_drawingNames.ContainsKey(Name))
+                {
+                    throw new Exception("Name already exists in the drawings collection");
+                }
+                if (Worksheet is ExcelChartsheet)
+                {
+                    throw new NotSupportedException("A chart sheet can not hold a chart of this type");
+                }
+                XmlElement drawNode = CreateDrawingXml();
+                var chart = new ExcelChartEx(this, drawNode, ChartType);
+                chart.Name = Name;
+                _drawings.Add(chart);
+                _drawingNames.Add(Name, _drawings.Count - 1);
+                return chart;
+            }
+            /// <summary>
             /// Add a picure to the worksheet
             /// </summary>
             /// <param name="Name"></param>

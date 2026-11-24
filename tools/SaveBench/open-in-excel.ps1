@@ -25,14 +25,20 @@ try {
             foreach ($entry in $charts) {
                 $ch = $entry[1]
                 $groups = @()
-                for ($g = 1; $g -le $ch.ChartGroups().Count; $g++) {
+                # the chart types of Excel 2016 (117 to 123) have no chart groups: the count of them is 0 or the call fails
+                $groupCount = 0
+                try { $groupCount = $ch.ChartGroups().Count } catch { }
+                for ($g = 1; $g -le $groupCount; $g++) {
                     $cg = $ch.ChartGroups($g)
                     $hl = '-'; $ud = '-'
                     try { $hl = $cg.HasHiLoLines } catch { }
                     try { $ud = $cg.HasUpDownBars } catch { }
                     $groups += "group ${g}: axes $($cg.AxisGroup), series $($cg.SeriesCollection().Count), hiLoLines $hl, upDownBars $ud"
                 }
-                "  {0}: type {1}, series {2}; {3}" -f $entry[0], $ch.ChartType, $ch.SeriesCollection().Count, ($groups -join '; ')
+                $seriesCount = '-'; $title = ''
+                try { $seriesCount = $ch.SeriesCollection().Count } catch { }
+                try { if ($ch.HasTitle) { $title = ", title [" + $ch.ChartTitle.Text + "]" } } catch { }
+                "  {0}: type {1}, series {2}{3}; {4}" -f $entry[0], $ch.ChartType, $seriesCount, $title, ($groups -join '; ')
             }
             if ($f.Name -eq 'issue9_ignored_errors.xlsx') {
                 # XlErrorChecks: 1 = xlEvaluateToError, 3 = xlNumberAsText

@@ -589,6 +589,276 @@ namespace EPPlusTest
             }
         }
 
+        #region #21: the chart types of Excel 2016
+        const string NsCx = "http://schemas.microsoft.com/office/drawing/2014/chartex";
+
+        // A sheet with two category columns (A, B) and a value column (C) in rows 2 to 7, and a chart of the type on it
+        static ExcelChartEx ExtendedChart(ExcelPackage a_package, eChartExType a_type, string a_sheet = "S")
+        {
+            var ws = a_package.Workbook.Worksheets.Add(a_sheet);
+            ws.Cells["A1"].Value = "Grp"; ws.Cells["B1"].Value = "Name"; ws.Cells["C1"].Value = "Val";
+            string[] names = { "a", "b", "c", "d", "e", "f" };
+            for (int r = 2; r <= 7; r++) { ws.Cells[r, 1].Value = r <= 4 ? "g1" : "g2"; ws.Cells[r, 2].Value = names[r - 2]; ws.Cells[r, 3].Value = (r - 1) * 7; }
+            return ws.Drawings.AddExtendedChart("Chart_" + a_type, a_type);
+        }
+
+        static XmlNamespaceManager CxNs(XmlElement a_root)
+        {
+            var ns = new XmlNamespaceManager(a_root.OwnerDocument.NameTable);
+            ns.AddNamespace("cx", NsCx);
+            ns.AddNamespace("xdr", "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing");
+            ns.AddNamespace("mc", "http://schemas.openxmlformats.org/markup-compatibility/2006");
+            ns.AddNamespace("a", "http://schemas.openxmlformats.org/drawingml/2006/main");
+            ns.AddNamespace("r", "http://schemas.openxmlformats.org/officeDocument/2006/relationships");
+            ns.AddNamespace("rel", "http://schemas.openxmlformats.org/package/2006/relationships");
+            ns.AddNamespace("ct", "http://schemas.openxmlformats.org/package/2006/content-types");
+            return ns;
+        }
+
+        // #21: a chart of Excel 2016 is a part of its own, with a style part and a colour part (Excel does not open the workbook
+        // without them), and sits in the drawing inside an AlternateContent with a text box as the fallback
+        [TestMethod]
+        public void Extended_charts_are_written_with_their_parts()
+        {
+            foreach (eChartExType type in Enum.GetValues(typeof(eChartExType)))
+            {
+                using (var p = new ExcelPackage())
+                {
+                    ExcelChartEx chart = ExtendedChart(p, type);
+                    bool hierarchy = type == eChartExType.Treemap || type == eChartExType.Sunburst;
+                    var s = chart.Series.Add("C2:C7", hierarchy ? "A2:B7" : "B2:B7");
+                    s.HeaderAddress = chart.WorkSheet.Cells["C1"];
+                    chart.Title = "Title <" + type + ">";
+                    chart.SetPosition(2, 0, 5, 0);
+                    chart.SetSize(400, 250);
+                    Assert.AreEqual("Chart_" + type, chart.Name);
+                    Assert.AreEqual(type, chart.ChartType);
+
+                    XmlElement types = SavedSheet(p, "[Content_Types].xml");
+                    var ns = CxNs(types);
+                    Assert.AreEqual("application/vnd.ms-office.chartex+xml", types.SelectSingleNode("ct:Override[@PartName='/xl/charts/chartEx1.xml']/@ContentType", ns).Value, type.ToString());
+                    Assert.AreEqual("application/vnd.ms-office.chartstyle+xml", types.SelectSingleNode("ct:Override[@PartName='/xl/charts/style1.xml']/@ContentType", ns).Value, type.ToString());
+                    Assert.AreEqual("application/vnd.ms-office.chartcolorstyle+xml", types.SelectSingleNode("ct:Override[@PartName='/xl/charts/colors1.xml']/@ContentType", ns).Value, type.ToString());
+
+                    XmlElement drawingRels = SavedSheet(p, "xl/drawings/_rels/drawing1.xml.rels");
+                    XmlNode rel = drawingRels.SelectSingleNode("rel:Relationship", CxNs(drawingRels));
+                    Assert.AreEqual("http://schemas.microsoft.com/office/2014/relationships/chartEx", rel.Attributes["Type"].Value, type.ToString());
+                    Assert.AreEqual("../charts/chartEx1.xml", rel.Attributes["Target"].Value, type.ToString());
+                    XmlElement chartRels = SavedSheet(p, "xl/charts/_rels/chartEx1.xml.rels");
+                    string[] targets = chartRels.SelectNodes("rel:Relationship", CxNs(chartRels)).OfType<XmlNode>().Select(n => n.Attributes["Type"].Value.Split('/').Last() + "=" + n.Attributes["Target"].Value).OrderBy(x => x).ToArray();
+                    CollectionAssert.AreEqual(new[] { "chartColorStyle=colors1.xml", "chartStyle=style1.xml" }, targets, type.ToString());
+
+                    XmlElement drawing = SavedSheet(p, "xl/drawings/drawing1.xml");
+                    var dns = CxNs(drawing);
+                    XmlNode anchor = drawing.SelectSingleNode("xdr:twoCellAnchor", dns);
+                    Assert.AreEqual("from,to,AlternateContent,clientData", string.Join(",", anchor.ChildNodes.OfType<XmlElement>().Select(e => e.LocalName)), type.ToString());
+                    XmlElement choice = (XmlElement)anchor.SelectSingleNode("mc:AlternateContent/mc:Choice", dns);
+                    // funnel charts came one release later than the others and ask for the second namespace
+                    string requires = type == eChartExType.Funnel ? "cx2" : "cx1";
+                    Assert.AreEqual(requires, choice.GetAttribute("Requires"), type.ToString());
+                    Assert.AreEqual(type == eChartExType.Funnel ? "http://schemas.microsoft.com/office/drawing/2015/10/21/chartex" : "http://schemas.microsoft.com/office/drawing/2015/9/8/chartex", choice.GetAttribute("xmlns:" + requires), type.ToString());
+                    Assert.AreEqual(rel.Attributes["Id"].Value, choice.SelectSingleNode("xdr:graphicFrame/a:graphic/a:graphicData/cx:chart/@r:id", dns).Value, type.ToString());
+                    Assert.AreEqual(NsCx, choice.SelectSingleNode("xdr:graphicFrame/a:graphic/a:graphicData/@uri", dns).Value, type.ToString());
+                    Assert.IsNotNull(anchor.SelectSingleNode("mc:AlternateContent/mc:Fallback/xdr:sp/xdr:txBody", dns), type.ToString());
+                    Assert.AreEqual("5", anchor.SelectSingleNode("xdr:from/xdr:col", dns).InnerText, type.ToString());
+
+                    XmlElement space = SavedSheet(p, "xl/charts/chartEx1.xml");
+                    var cns = CxNs(space);
+                    Assert.AreEqual(hierarchy ? "'S'!$A$2:$B$7" : "'S'!$B$2:$B$7", space.SelectSingleNode("cx:chartData/cx:data/cx:strDim[@type='cat']/cx:f", cns).InnerText, type.ToString());
+                    Assert.AreEqual("'S'!$C$2:$C$7", space.SelectSingleNode("cx:chartData/cx:data/cx:numDim[@type='" + (hierarchy ? "size" : "val") + "']/cx:f", cns).InnerText, type.ToString());
+                    Assert.AreEqual("Title <" + type + ">", space.SelectSingleNode("cx:chart/cx:title/cx:tx/cx:txData/cx:v", cns).InnerText, type.ToString());
+                    Assert.AreEqual("'S'!$C$1", space.SelectSingleNode("cx:chart/cx:plotArea/cx:plotAreaRegion/cx:series/cx:tx/cx:txData/cx:f", cns).InnerText, type.ToString());
+                    Assert.AreEqual("Val", space.SelectSingleNode("cx:chart/cx:plotArea/cx:plotAreaRegion/cx:series/cx:tx/cx:txData/cx:v", cns).InnerText, type.ToString());
+
+                    string layouts = string.Join(",", space.SelectNodes("cx:chart/cx:plotArea/cx:plotAreaRegion/cx:series/@layoutId", cns).OfType<XmlNode>().Select(n => n.Value));
+                    int axes = space.SelectNodes("cx:chart/cx:plotArea/cx:axis", cns).Count;
+                    switch (type)
+                    {
+                        case eChartExType.Waterfall: Assert.AreEqual("waterfall", layouts); Assert.AreEqual(2, axes); break;
+                        case eChartExType.Treemap: Assert.AreEqual("treemap", layouts); Assert.AreEqual(0, axes); break;
+                        case eChartExType.Sunburst: Assert.AreEqual("sunburst", layouts); Assert.AreEqual(0, axes); break;
+                        case eChartExType.Histogram: Assert.AreEqual("clusteredColumn", layouts); Assert.AreEqual(2, axes); break;
+                        case eChartExType.Pareto: Assert.AreEqual("clusteredColumn,paretoLine", layouts); Assert.AreEqual(3, axes); break;
+                        case eChartExType.BoxWhisker: Assert.AreEqual("boxWhisker", layouts); Assert.AreEqual(2, axes); break;
+                        case eChartExType.Funnel: Assert.AreEqual("funnel", layouts); Assert.AreEqual(1, axes); break;
+                    }
+
+                    // the style part has an entry for every element of a chart, each with its four references
+                    XmlElement style = SavedSheet(p, "xl/charts/style1.xml");
+                    var sns = new XmlNamespaceManager(style.OwnerDocument.NameTable);
+                    sns.AddNamespace("cs", "http://schemas.microsoft.com/office/drawing/2012/chartStyle");
+                    Assert.AreEqual(31, style.ChildNodes.OfType<XmlElement>().Count(), type.ToString());
+                    foreach (XmlElement entry in style.ChildNodes.OfType<XmlElement>().Where(e => e.LocalName != "dataPointMarkerLayout"))
+                    {
+                        Assert.AreEqual("lnRef,fillRef,effectRef,fontRef", string.Join(",", entry.ChildNodes.OfType<XmlElement>().Take(4).Select(e => e.LocalName)), type + " " + entry.LocalName);
+                    }
+                    Assert.AreEqual("colorStyle", SavedSheet(p, "xl/charts/colors1.xml").LocalName);
+                }
+            }
+        }
+
+        // #21: what belongs to one chart type, and the things a chart can be without
+        [TestMethod]
+        public void Extended_charts_write_the_options_of_their_type()
+        {
+            using (var p = new ExcelPackage())
+            {
+                string region = "cx:chart/cx:plotArea/cx:plotAreaRegion/";
+
+                // waterfall: the totals; no title, no labels, no legend
+                ExcelChartEx waterfall = ExtendedChart(p, eChartExType.Waterfall, "Waterfall");
+                Assert.IsTrue(waterfall.DataLabels && waterfall.ShowLegend, "on when the chart is made, as in Excel");
+                waterfall.Series.Add("C2:C7", "B2:B7").Subtotals = new[] { 0, 5 };
+                waterfall.DataLabels = false; waterfall.ShowLegend = false;
+                XmlElement w = SavedSheet(p, "xl/charts/chartEx1.xml");
+                var ns = CxNs(w);
+                Assert.AreEqual("0,5", string.Join(",", w.SelectNodes(region + "cx:series/cx:layoutPr/cx:subtotals/cx:idx/@val", ns).OfType<XmlNode>().Select(n => n.Value)));
+                Assert.IsNull(w.SelectSingleNode("cx:chart/cx:title", ns));
+                Assert.IsNull(w.SelectSingleNode("cx:chart/cx:legend", ns));
+                Assert.IsNull(w.SelectSingleNode(region + "cx:series/cx:dataLabels", ns));
+                Assert.IsNull(w.SelectSingleNode(region + "cx:series/cx:tx", ns), "no name was given");
+                Assert.AreEqual("dataId,layoutPr", string.Join(",", ChildNames((XmlElement)w.SelectSingleNode(region + "cx:series", ns))));
+
+                // histogram: of the values alone, with the width of a bin, the number of bins, or neither
+                ExcelChartEx histogram = ExtendedChart(p, eChartExType.Histogram, "Histogram");
+                histogram.Series.Add("C2:C7", null).Header = "Elapsed & more";
+                histogram.BinWidth = 2.5;
+                XmlElement h = SavedSheet(p, "xl/charts/chartEx2.xml");
+                Assert.IsNull(h.SelectSingleNode("cx:chartData/cx:data/cx:strDim", ns));
+                Assert.AreEqual("'Histogram'!$C$2:$C$7", h.SelectSingleNode("cx:chartData/cx:data/cx:numDim/cx:f", ns).InnerText);
+                Assert.AreEqual("2.5", h.SelectSingleNode(region + "cx:series/cx:layoutPr/cx:binning[@intervalClosed='r']/cx:binSize/@val", ns).Value);
+                Assert.AreEqual("Elapsed & more", h.SelectSingleNode(region + "cx:series/cx:tx/cx:txData/cx:v", ns).InnerText);
+                Assert.IsNull(h.SelectSingleNode(region + "cx:series/cx:tx/cx:txData/cx:f", ns));
+                histogram.BinWidth = null; histogram.BinCount = 4;
+                h = SavedSheet(p, "xl/charts/chartEx2.xml");
+                Assert.AreEqual("4", h.SelectSingleNode(region + "cx:series/cx:layoutPr/cx:binning/cx:binCount/@val", ns).Value);
+                histogram.BinCount = null;
+                h = SavedSheet(p, "xl/charts/chartEx2.xml");
+                Assert.AreEqual(0, h.SelectSingleNode(region + "cx:series/cx:layoutPr/cx:binning", ns).ChildNodes.Count);
+
+                // Pareto: of categories the columns are the categories, of values alone they are bins
+                ExcelChartEx pareto = ExtendedChart(p, eChartExType.Pareto, "Pareto");
+                pareto.Series.Add("C2:C7", "B2:B7");
+                XmlElement pa = SavedSheet(p, "xl/charts/chartEx3.xml");
+                Assert.IsNotNull(pa.SelectSingleNode(region + "cx:series[@layoutId='clusteredColumn']/cx:layoutPr/cx:aggregation", ns));
+                Assert.AreEqual("0", pa.SelectSingleNode(region + "cx:series[@layoutId='paretoLine']/@ownerIdx", ns).Value);
+                Assert.AreEqual("percentage", pa.SelectSingleNode("cx:chart/cx:plotArea/cx:axis[@id='2']/cx:units/@unit", ns).Value);
+
+                // an address with a sheet name, a sheet name that needs quotes, ranges of another sheet
+                var other = p.Workbook.Worksheets.Add("It's data");
+                other.Cells["A1"].Value = "x"; other.Cells["B1"].Value = 1;
+                ExcelChartEx funnel = ExtendedChart(p, eChartExType.Funnel, "Funnel");
+                funnel.Series.Add("'It''s data'!B1:B5", "'It''s data'!A1:A5");
+                funnel.Series.Add(other.Cells["B1:B5"], null);
+                XmlElement f = SavedSheet(p, "xl/charts/chartEx4.xml");
+                Assert.AreEqual("'It''s data'!$B$1:$B$5", f.SelectNodes("cx:chartData/cx:data/cx:numDim/cx:f", ns)[0].InnerText);
+                Assert.AreEqual("'It''s data'!$B$1:$B$5", f.SelectNodes("cx:chartData/cx:data/cx:numDim/cx:f", ns)[1].InnerText);
+                Assert.AreEqual("0,1", string.Join(",", f.SelectNodes(region + "cx:series/cx:dataId/@val", ns).OfType<XmlNode>().Select(n => n.Value)));
+                Assert.AreEqual(2, funnel.Series.Count);
+
+                Assert.ThrowsException<ArgumentException>(() => funnel.Series.Add("", "A1:A5"));
+                Assert.ThrowsException<Exception>(() => p.Workbook.Worksheets["Funnel"].Drawings.AddExtendedChart("Chart_Funnel", eChartExType.Funnel), "a name that is taken");
+                var chartSheet = p.Workbook.Worksheets.AddChart("ChartSheet", eChartType.Line);
+                Assert.ThrowsException<NotSupportedException>(() => chartSheet.Drawings.AddExtendedChart("X", eChartExType.Funnel));
+            }
+        }
+
+        // #21: a workbook with such a chart keeps it when it is loaded and saved; removing the chart removes its parts
+        [TestMethod]
+        public void Extended_charts_survive_a_load_and_are_removed_with_their_parts()
+        {
+            using (var p = new ExcelPackage())
+            {
+                ExcelChartEx chart = ExtendedChart(p, eChartExType.Treemap);
+                chart.Series.Add("C2:C7", "A2:B7");
+                chart.Title = "Sizes";
+                ExcelChartEx second = p.Workbook.Worksheets["S"].Drawings.AddExtendedChart("Second", eChartExType.Histogram);
+                second.Series.Add("C2:C7", null);
+                var column = p.Workbook.Worksheets["S"].Drawings.AddChart("Column", eChartType.ColumnClustered);
+                column.Series.Add("C2:C7", "B2:B7");
+                string before = SavedSheet(p, "xl/charts/chartEx1.xml").OuterXml;
+
+                using (var r = Reload(p))
+                {
+                    var ws = r.Workbook.Worksheets["S"];
+                    Assert.AreEqual(3, ws.Drawings.Count);
+                    ws.Cells["C2"].Value = 99;
+                    Assert.AreEqual(before, SavedSheet(r, "xl/charts/chartEx1.xml").OuterXml, "the chart part is kept as it is");
+                    Assert.IsNotNull(SavedSheet(r, "xl/charts/style2.xml"));
+                    Assert.IsNotNull(SavedSheet(r, "xl/charts/_rels/chartEx2.xml.rels"));
+                    XmlElement drawing = SavedSheet(r, "xl/drawings/drawing1.xml");
+                    Assert.AreEqual(2, drawing.SelectNodes("xdr:twoCellAnchor/mc:AlternateContent", CxNs(drawing)).Count);
+                }
+
+                // removed before the save: the three parts of the chart go with it, the other chart stays
+                p.Workbook.Worksheets["S"].Drawings.Remove(chart);
+                Assert.AreEqual(2, p.Workbook.Worksheets["S"].Drawings.Count);
+                var ms = new MemoryStream();
+                p.SaveAs(ms);
+                ms.Position = 0;
+                using (var zip = new System.IO.Compression.ZipArchive(ms))
+                {
+                    string[] parts = zip.Entries.Select(e => e.FullName).Where(n => n.StartsWith("xl/charts/")).OrderBy(n => n).ToArray();
+                    CollectionAssert.AreEqual(new[] { "xl/charts/_rels/chartEx2.xml.rels", "xl/charts/chart1.xml", "xl/charts/chartEx2.xml", "xl/charts/colors2.xml", "xl/charts/style2.xml" }, parts, string.Join(" ", parts));
+                }
+            }
+        }
+
+        // #21: a copy of a worksheet has a copy of the chart with parts of its own. The drawing of the copy pointed at a
+        // relationship that did not exist, and Excel did not open the workbook.
+        [TestMethod]
+        public void Extended_charts_are_copied_with_the_worksheet()
+        {
+            using (var p = new ExcelPackage())
+            {
+                ExcelChartEx chart = ExtendedChart(p, eChartExType.Funnel);
+                chart.Series.Add("C2:C7", "B2:B7");
+                chart.Title = "Before the copy";
+                var copy = p.Workbook.Worksheets.Add("Copy", p.Workbook.Worksheets["S"]);
+                chart.Title = "After the copy";
+                Assert.AreEqual(1, copy.Drawings.Count);
+
+                // loaded and copied once more: the chart is then a drawing the library only keeps
+                using (var r = Reload(p))
+                {
+                    r.Workbook.Worksheets.Add("Copy2", r.Workbook.Worksheets["Copy"]);
+                    var ms = new MemoryStream();
+                    r.SaveAs(ms);
+                    ms.Position = 0;
+                    using (var zip = new System.IO.Compression.ZipArchive(ms))
+                    {
+                        string[] names = zip.Entries.Select(e => e.FullName).ToArray();
+                        Assert.AreEqual(3, names.Count(n => System.Text.RegularExpressions.Regex.IsMatch(n, @"^xl/charts/chartEx\d+\.xml$")), string.Join(" ", names));
+                        Assert.AreEqual(3, names.Count(n => System.Text.RegularExpressions.Regex.IsMatch(n, @"^xl/charts/style\d+\.xml$")), string.Join(" ", names));
+                        Assert.AreEqual(3, names.Count(n => System.Text.RegularExpressions.Regex.IsMatch(n, @"^xl/charts/colors\d+\.xml$")), string.Join(" ", names));
+
+                        // every drawing points at a chart part of its own that is in the package, and that part at its style and colours
+                        var seen = new System.Collections.Generic.HashSet<string>();
+                        foreach (string drawingName in names.Where(n => System.Text.RegularExpressions.Regex.IsMatch(n, @"^xl/drawings/drawing\d+\.xml$")))
+                        {
+                            var drawing = new XmlDocument(); using (var s = zip.GetEntry(drawingName).Open()) drawing.Load(s);
+                            var ns = CxNs(drawing.DocumentElement);
+                            string id = drawing.SelectSingleNode("//cx:chart/@r:id", ns).Value;
+                            var rels = new XmlDocument(); using (var s = zip.GetEntry(drawingName.Replace("drawings/", "drawings/_rels/") + ".rels").Open()) rels.Load(s);
+                            string target = rels.SelectSingleNode("//rel:Relationship[@Id='" + id + "']/@Target", ns).Value;
+                            string chartName = "xl/charts/" + target.Split('/').Last();
+                            Assert.IsTrue(names.Contains(chartName), drawingName + " -> " + target);
+                            Assert.IsTrue(seen.Add(chartName), "two drawings share " + chartName);
+                            var chartRels = new XmlDocument(); using (var s = zip.GetEntry(chartName.Replace("charts/", "charts/_rels/") + ".rels").Open()) chartRels.Load(s);
+                            foreach (XmlNode t in chartRels.SelectNodes("//rel:Relationship/@Target", ns)) Assert.IsTrue(names.Contains("xl/charts/" + t.Value), chartName + " -> " + t.Value);
+                            Assert.AreEqual(2, chartRels.SelectNodes("//rel:Relationship", ns).Count, chartName);
+                        }
+                        Assert.AreEqual(3, seen.Count);
+
+                        // the copy was made before the title changed: it has the title of that moment
+                        string titles = string.Join("|", seen.OrderBy(n => n).Select(n => { var d = new XmlDocument(); using (var s = zip.GetEntry(n).Open()) d.Load(s); return d.SelectSingleNode("//cx:title//cx:v", CxNs(d.DocumentElement)).InnerText; }));
+                        Assert.AreEqual("After the copy|Before the copy|Before the copy", titles);
+                    }
+                }
+            }
+        }
+        #endregion
+
         #region #19: the format of chart series
         static readonly string[] s_serOrder = { "idx", "order", "tx", "spPr", "invertIfNegative", "pictureOptions", "marker", "explosion", "dPt", "dLbls", "trendline", "errBars", "cat", "val", "xVal", "yVal", "smooth", "shape", "bubbleSize", "bubble3D", "extLst" };
         static readonly System.Drawing.Color s_red = System.Drawing.Color.FromArgb(0xC0, 0x00, 0x00);
