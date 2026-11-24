@@ -126,5 +126,89 @@ static class Issues
             ws.Cells["A1:E21"].AutoFitColumns();
             p.SaveAs(new FileInfo(Path.Combine(a_dir, "issue9_ignored_errors.xlsx")));
         }
+
+        // #17: filters and sorts of an autofilter, one case per sheet. filters-in-excel.ps1 lists the hidden rows of each sheet,
+        // lets Excel apply the filter again and lists them again: the two must be the same.
+        using (var p = new ExcelPackage())
+        {
+            FilterCase(p, "values", false, f => f.ShowValues(0, "alpha", "gamma"));
+            FilterCase(p, "values blank", false, f => f.ShowValues(3, "note 3", ""));
+            FilterCase(p, "values number", false, f => f.ShowValues(1, "9.00", "15.00"));
+            FilterCase(p, "values date", false, f => f.ShowValues(2, "2026-01-05", "2026-01-07"));
+            FilterCase(p, "number and", false, f => f.ShowWhere(1, eFilterOperator.GreaterThanOrEqual, 6, true, eFilterOperator.LessThan, 27));
+            FilterCase(p, "number equal", false, f => f.ShowWhere(1, eFilterOperator.Equal, 12));
+            FilterCase(p, "number not equal", false, f => f.ShowWhere(5, eFilterOperator.NotEqual, 5));
+            FilterCase(p, "number less mixed", false, f => f.ShowWhere(5, eFilterOperator.LessThan, 10));
+            FilterCase(p, "text or blank", false, f => f.ShowWhere(3, eFilterOperator.Equal, "note 1*", false, eFilterOperator.Equal, ""));
+            FilterCase(p, "text not equal", false, f => f.ShowWhere(4, eFilterOperator.NotEqual, "g0"));
+            FilterCase(p, "text greater", false, f => f.ShowWhere(0, eFilterOperator.GreaterThan, "c"));
+            FilterCase(p, "text wildcard mixed", false, f => f.ShowWhere(5, eFilterOperator.Equal, "*a*"));
+            FilterCase(p, "text not wildcard mixed", false, f => f.ShowWhere(5, eFilterOperator.NotEqual, "5*"));
+            FilterCase(p, "one character", false, f => f.ShowWhere(4, eFilterOperator.Equal, "g?"));
+            FilterCase(p, "not blank", false, f => f.ShowWhere(3, eFilterOperator.NotEqual, ""));
+            FilterCase(p, "blank", false, f => f.ShowWhere(3, eFilterOperator.Equal, null));
+            FilterCase(p, "date from", false, f => f.ShowWhere(2, eFilterOperator.GreaterThanOrEqual, new DateTime(2026, 1, 6)));
+            FilterCase(p, "date equal", false, f => f.ShowWhere(2, eFilterOperator.Equal, new DateTime(2026, 1, 5)));
+            // Excel's own rules for "equal": the text the cell shows
+            FilterCase(p, "equal shown text", false, f => f.ShowWhere(1, eFilterOperator.Equal, "12.00"));
+            FilterCase(p, "equal two numbers", false, f => f.ShowWhere(1, eFilterOperator.Equal, 12, false, eFilterOperator.Equal, 15));
+            FilterCase(p, "equal mixed", false, f => f.ShowWhere(5, eFilterOperator.Equal, 5, false, eFilterOperator.Equal, "abc"));
+            FilterCase(p, "wildcard on numbers", false, f => f.ShowWhere(1, eFilterOperator.Equal, "1*", false, eFilterOperator.Equal, "2?.00"));
+            FilterCase(p, "not equal number shown", false, f => f.ShowWhere(1, eFilterOperator.NotEqual, 12));
+            FilterCase(p, "not equal two", false, f => f.ShowWhere(5, eFilterOperator.NotEqual, 5, true, eFilterOperator.NotEqual, "x"));
+            FilterCase(p, "greater text mixed", false, f => f.ShowWhere(5, eFilterOperator.GreaterThan, "b"));
+            FilterCase(p, "less or equal text", false, f => f.ShowWhere(0, eFilterOperator.LessThanOrEqual, "beta"));
+            FilterCase(p, "tilde", false, f => f.ShowWhere(4, eFilterOperator.Equal, "g~?", false, eFilterOperator.Equal, "g1"));
+            FilterCase(p, "several columns", false, f =>
+            {
+                f.ShowValues(0, "alpha", "gamma");
+                f.ShowWhere(1, eFilterOperator.GreaterThanOrEqual, 6, true, eFilterOperator.LessThan, 27);
+                f.ShowWhere(3, eFilterOperator.Equal, "note*", false, eFilterOperator.Equal, "");
+                f.ShowWhere(4, eFilterOperator.NotEqual, "g0");
+            });
+            FilterCase(p, "sorted", false, f => f.Sort(1, true));
+            FilterCase(p, "sorted and filtered", false, f => { f.ShowWhere(4, eFilterOperator.NotEqual, "g0"); f.Sort(0); });
+            FilterCase(p, "table values", true, f => f.ShowValues(0, "alpha", "gamma"));
+            FilterCase(p, "table several", true, f =>
+            {
+                f.ShowValues(3, "note 3", "note 6", "");
+                f.ShowWhere(1, eFilterOperator.GreaterThan, 5);
+            });
+            FilterCase(p, "table sorted", true, f => { f.Sort(1, true); f.ShowWhere(4, eFilterOperator.Equal, "g1"); });
+            FilterCase(p, "table cleared", true, f => { f.ShowValues(0, "alpha"); f.Clear(0); });
+            p.SaveAs(new FileInfo(Path.Combine(a_dir, "issue17_autofilter.xlsx")));
+        }
+    }
+
+    // A sheet with a header and ten rows: a name, a number shown with two decimals, a date, a note with empty cells,
+    // a group, and a column that mixes numbers and texts. The autofilter is on a range or on a table.
+    static void FilterCase(ExcelPackage p, string name, bool table, Action<ExcelAutoFilter> set)
+    {
+        var ws = p.Workbook.Worksheets.Add(name);
+        string[] heads = { "Name", "Qty", "When", "Note", "Grp", "Mixed" };
+        string[] names = { "alpha", "beta", "gamma", "alpha", "delta", "beta", "Alpha", "epsilon", "gamma", "zeta" };
+        object[] mixed = { 5, "5a", 12, "abc", 7, "x", null, 5, "banana", 10.5 };
+        for (int c = 0; c < heads.Length; c++) ws.Cells[1, c + 1].Value = heads[c];
+        for (int i = 1; i <= 10; i++)
+        {
+            ws.Cells[i + 1, 1].Value = names[i - 1];
+            ws.Cells[i + 1, 2].Value = i * 3;
+            ws.Cells[i + 1, 3].Value = new DateTime(2026, 1, i);
+            if (i % 4 != 0) ws.Cells[i + 1, 4].Value = "note " + i;
+            ws.Cells[i + 1, 5].Value = "g" + (i % 3);
+            if (mixed[i - 1] != null) ws.Cells[i + 1, 6].Value = mixed[i - 1];
+        }
+        ws.Cells["B2:B11"].Style.Numberformat.Format = "0.00";
+        ws.Cells["C2:C11"].Style.Numberformat.Format = "yyyy-mm-dd";
+        if (table)
+        {
+            var t = ws.Tables.Add(ws.Cells["A1:F11"], "Table_" + p.Workbook.Worksheets.Count);
+            set(t.AutoFilter);
+        }
+        else
+        {
+            ws.Cells["A1:F11"].AutoFilter = true;
+            set(ws.AutoFilter);
+        }
     }
 }

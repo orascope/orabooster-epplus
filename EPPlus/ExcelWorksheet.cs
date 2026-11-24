@@ -472,6 +472,23 @@ namespace OfficeOpenXml
             }
         }
 
+        // orabooster-epplus: issue #17
+        private ExcelAutoFilter _autoFilter;
+        /// <summary>
+        /// The filters and the sort of the autofilter of the worksheet (set with ExcelRangeBase.AutoFilter). Null when the worksheet has none.
+        /// A table has its own: ExcelTable.AutoFilter.
+        /// </summary>
+        public ExcelAutoFilter AutoFilter
+        {
+            get
+            {
+                CheckSheetType();
+                if (!ExistNode("d:autoFilter")) return null;
+                if (_autoFilter == null) _autoFilter = new ExcelAutoFilter(this, null);
+                return _autoFilter;
+            }
+        }
+
         internal void CheckSheetType()
         {
             if (this is ExcelChartsheet)
@@ -2961,6 +2978,14 @@ namespace OfficeOpenXml
                         {
                             //Remove node if no drawings exists.
                             DeleteNode("d:drawing");
+                        }
+
+                        // orabooster-epplus: issue #17. Hides the rows that do not pass a filter that was set or taken off through
+                        // ExcelAutoFilter. Nothing happens on a sheet where that was not used.
+                        if (_autoFilter != null) _autoFilter.ApplyIfChanged();
+                        if (_tables != null)
+                        {
+                            foreach (var tbl in _tables) tbl.ApplyAutoFilterIfChanged();
                         }
 
                         SaveComments();
