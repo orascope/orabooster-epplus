@@ -51,7 +51,7 @@ New features, taken one at a time from the candidate list in #8. They are writte
   - Checked in Excel 16 with `SaveBench issues` and the new `tools/SaveBench/filters-in-excel.ps1`: for each of the 34 sheets of `issue17_autofilter.xlsx` (value lists, empty cells, numbers as they are shown, dates, one and two conditions with every operator, wildcards, a column of numbers and texts, sorts, tables) the rows hidden in the file are exactly the rows Excel hides when it applies the filter again; Excel sees the filters on the same columns and the same sort; the file opens without a repair.
   - `variety`, `keep`, the autofit samples and the issue 2, 3, 9 and 11 samples of `SaveBench` are part by part the same as before.
   - Not done: when rows or columns are inserted or deleted after `Sort`, the recorded sort is not moved (call `Sort` again or `ClearSort`).
-  - Tests: 5 new. Whole suite: 1,177 passed, 10 failed, 214 skipped (the same 10 as before).
+  - Tests: 6 new. Whole suite: 1,178 passed, 10 failed, 214 skipped (the same 10 as before).
 
 ## 4.5.3.8-ora.2 (2026-11-24, OraScope Co.,Ltd.)
 

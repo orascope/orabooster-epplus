@@ -814,6 +814,28 @@ namespace EPPlusTest
             }
         }
 
+        // #17: the totals row of a table is below the autofilter: it is not sorted with the rows and not hidden
+        [TestMethod]
+        public void AutoFilter_of_a_table_leaves_the_totals_row_alone()
+        {
+            using (var p = new ExcelPackage())
+            {
+                var ws = FilterSheet(p);
+                var table = ws.Tables.Add(ws.Cells["A1:E11"], "Table_Totals");
+                table.ShowTotal = true;
+                ws.Cells["A12"].Value = "Total";
+                Assert.AreEqual("A1:E12", table.Address.Address);
+                Assert.AreEqual("A1:E11", table.AutoFilter.Address.Address);
+
+                table.AutoFilter.Sort(0, true);
+                table.AutoFilter.ShowValues(0, "nothing has this name");
+                table.AutoFilter.Apply();
+                Assert.AreEqual("Total", ws.Cells["A12"].Value, "not sorted");
+                Assert.AreEqual("zeta", ws.Cells["A2"].Value);
+                Assert.AreEqual("2,3,4,5,6,7,8,9,10,11", HiddenRows(ws, 2, 12), "every row but the totals row");
+            }
+        }
+
         // #17: wrong arguments, and an autofilter that was removed
         [TestMethod]
         public void AutoFilter_refuses_wrong_arguments()
