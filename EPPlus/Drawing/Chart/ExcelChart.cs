@@ -415,8 +415,9 @@ namespace OfficeOpenXml.Drawing.Chart
            _chartNode = chartNode;
 
            InitChartLoad(topChart._drawings, chartNode);
-           // orabooster-epplus: a loaded stock chart that is combined with another chart type had no chart type (0), issue #11
-           if (chartNode.LocalName == "stockChart") ChartType = GetChartType(chartNode.LocalName);
+           // orabooster-epplus: a loaded chart type that is combined with another one had no chart type (0). First set for a stock
+           // chart (issue #11), now for every kind (issue #12), as the constructor of a loaded first chart type does.
+           ChartType = GetChartType(chartNode.LocalName);
        }
        private void InitChartLoad(ExcelDrawings drawings, XmlNode chartNode)
        {
@@ -1826,10 +1827,10 @@ namespace OfficeOpenXml.Drawing.Chart
                     if (topChart == null)
                     {
                         topChart = GetChart(n, drawings, node, uriChart, part, chartXml, null);
-                        if(topChart!=null)
-                        {
-                            topChart.PlotArea.ChartTypes.Add(topChart);
-                        }
+                        // orabooster-epplus (issue #12): the chart is not added to PlotArea.ChartTypes here. The collection puts it in
+                        // when it is made (ExcelChartCollection), so it was in the list twice: a loaded chart with one chart type had a
+                        // count of 2, ChartTypes[1] of a loaded combined chart was the first chart again, and a series added to a
+                        // loaded chart gave the series that were there new numbers.
                     }
                     else
                     {

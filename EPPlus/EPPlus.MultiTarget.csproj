@@ -29,6 +29,8 @@
 		- Chart series: fill and border are valid on every chart type and in the order of the schema, data points, error bars (issue #19).
 		- The chart types of Excel 2016: waterfall, treemap, sunburst, histogram, Pareto, box and whisker, funnel (issue #21).
 		- FormulaR1C1 no longer writes the minus sign of the culture (sv-SE, nb-NO, fi-FI on .NET 5 and later) (issue #23).
+		- A loaded chart has each chart type once in PlotArea.ChartTypes; series added to a chart with several chart types get numbers that are free (issue #12).
+		- A number that is not a date in a date format shows as # signs and no longer stops AutoFitColumns (issue #15).
 		4.5.3.8-ora.2
 		- Deleting a table no longer leaves the next table id at 0 or at an id in use (issue #2).
 		- Column3D, StockHLC and StockOHLC charts; the volume stock charts throw NotSupportedException before anything is added (issue #3).

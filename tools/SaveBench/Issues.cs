@@ -127,6 +127,42 @@ static class Issues
             p.SaveAs(new FileInfo(Path.Combine(a_dir, "issue9_ignored_errors.xlsx")));
         }
 
+        // #12: series added to loaded charts. The workbook is saved to memory, loaded, and gets one more series on a chart with
+        // one chart type and on each chart type of a chart with columns and a line. open-in-excel.ps1 must show 3 and 5 series.
+        // #15: column H has numbers that are not dates in a date format, and the sheet is autofitted.
+        {
+            var ms = new MemoryStream();
+            using (var p = new ExcelPackage())
+            {
+                var ws = p.Workbook.Worksheets.Add("S");
+                for (int r = 1; r <= 8; r++) for (int c = 1; c <= 6; c++) ws.Cells[r, c].Value = r == 1 ? (object)("H" + c) : c == 1 ? (object)("c" + r) : r * c;
+                var single = ws.Drawings.AddChart("Single", eChartType.ColumnClustered);
+                single.Series.Add("B2:B8", "A2:A8"); single.Series.Add("C2:C8", "A2:A8");
+                single.SetPosition(1, 0, 9, 0); single.SetSize(420, 260);
+                var combined = ws.Drawings.AddChart("Combined", eChartType.ColumnClustered);
+                combined.Series.Add("B2:B8", "A2:A8"); combined.Series.Add("C2:C8", "A2:A8");
+                combined.PlotArea.ChartTypes.Add(eChartType.Line).Series.Add("D2:D8", "A2:A8");
+                combined.SetPosition(16, 0, 9, 0); combined.SetSize(420, 260);
+                p.SaveAs(ms);
+            }
+            ms.Position = 0;
+            using (var p = new ExcelPackage(ms))
+            {
+                var ws = p.Workbook.Worksheets["S"];
+                var single = (ExcelChart)ws.Drawings["Single"];
+                single.Series.Add("D2:D8", "A2:A8");
+                var combined = (ExcelChart)ws.Drawings["Combined"];
+                combined.Series.Add("E2:E8", "A2:A8");
+                combined.PlotArea.ChartTypes[1].Series.Add("F2:F8", "A2:A8");
+
+                ws.Cells["H1"].Value = "When";
+                ws.Cells["H2"].Value = 46000; ws.Cells["H3"].Value = -700000; ws.Cells["H4"].Value = 3000000;
+                ws.Cells["H2:H4"].Style.Numberformat.Format = "yyyy-mm-dd";
+                ws.Cells["A1:H8"].AutoFitColumns();
+                p.SaveAs(new FileInfo(Path.Combine(a_dir, "issue12_15_loaded_charts.xlsx")));
+            }
+        }
+
         // #21: the chart types of Excel 2016, all on one sheet, in the order of eChartExType. open-in-excel.ps1 prints the type
         // Excel gives each: 119 waterfall, 117 treemap, 120 sunburst, 118 histogram, 122 Pareto, 121 box and whisker, 123 funnel.
         using (var p = new ExcelPackage())
