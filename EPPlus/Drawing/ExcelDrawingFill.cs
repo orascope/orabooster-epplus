@@ -103,6 +103,31 @@ namespace OfficeOpenXml.Drawing
             }
             CreateNode(_fillPath + "/a:" + GetStyleText(value), false);
             _fillNode=TopNode.SelectSingleNode(_fillPath + "/a:" + GetStyleText(value), NameSpaceManager);
+            RemoveOtherFills(GetStyleText(value));
+        }
+
+        // orabooster-epplus: a shape or a line has one fill (issue #19). A solid fill was added next to the noFill that the series
+        // of a scatter or stock chart are made with (and the other way round), and Excel does not open a file with both.
+        private void RemoveOtherFills(string keep)
+        {
+            XmlNode parent = TopNode.SelectSingleNode(_fillPath, NameSpaceManager);
+            if (parent == null) return;
+            for (int i = parent.ChildNodes.Count - 1; i >= 0; i--)
+            {
+                XmlNode n = parent.ChildNodes[i];
+                if (n.NodeType != XmlNodeType.Element || n.NamespaceURI != ExcelPackage.schemaDrawings || n.LocalName == keep) continue;
+                switch (n.LocalName)
+                {
+                    case "noFill":
+                    case "solidFill":
+                    case "gradFill":
+                    case "blipFill":
+                    case "pattFill":
+                    case "grpFill":
+                        parent.RemoveChild(n);
+                        break;
+                }
+            }
         }
 
         private eFillStyle GetStyleEnum(string name)
@@ -174,6 +199,7 @@ namespace OfficeOpenXml.Drawing
                 CreateNode(_fillPath, false);
                 //fix ArgumentOutOfRangeException for Fill colors for solid fills with an alpha-value from zero (100% transparency)
                 SetXmlNodeString(_fillPath + ColorPath, value.ToArgb().ToString("X8").Substring(2));
+                RemoveOtherFills("solidFill"); // orabooster-epplus: issue #19
             }
         }
         const string alphaPath = "/a:solidFill/a:srgbClr/a:alpha/@val";

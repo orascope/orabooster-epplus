@@ -164,6 +164,10 @@ namespace OfficeOpenXml.Drawing.Chart
             {
                 SetXmlNodeString(LINECOLOR_PATH, value.ToArgb().ToString("X8").Substring(2), true);
                 setAlphaChannel(value, LINECOLOR_PATH);
+                // orabooster-epplus: the series of a scatter chart without lines is made with <a:ln><a:noFill/></a:ln>. A line has
+                // one fill: with the colour next to the noFill Excel does not open the file (issue #19).
+                XmlNode noFill = TopNode.SelectSingleNode("c:spPr/a:ln/a:noFill", NameSpaceManager);
+                if (noFill != null) noFill.ParentNode.RemoveChild(noFill);
             }
         }
         string MARKERSIZE_PATH = "c:marker/c:size/@val";

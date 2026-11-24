@@ -589,6 +589,315 @@ namespace EPPlusTest
             }
         }
 
+        #region #19: the format of chart series
+        static readonly string[] s_serOrder = { "idx", "order", "tx", "spPr", "invertIfNegative", "pictureOptions", "marker", "explosion", "dPt", "dLbls", "trendline", "errBars", "cat", "val", "xVal", "yVal", "smooth", "shape", "bubbleSize", "bubble3D", "extLst" };
+        static readonly System.Drawing.Color s_red = System.Drawing.Color.FromArgb(0xC0, 0x00, 0x00);
+        static readonly System.Drawing.Color s_blue = System.Drawing.Color.FromArgb(0x00, 0x70, 0xC0);
+        static readonly System.Drawing.Color s_green = System.Drawing.Color.FromArgb(0x00, 0xB0, 0x50);
+
+        // A chart of the given type on a sheet with a category column and four value columns, with its series
+        static ExcelChart FormatChart(ExcelPackage a_package, eChartType a_type, string a_sheet = "S")
+        {
+            var ws = a_package.Workbook.Worksheets.Add(a_sheet);
+            for (int r = 1; r <= 6; r++) for (int c = 1; c <= 5; c++) ws.Cells[r, c].Value = r == 1 ? (object)("H" + c) : r * c + 1;
+            var chart = ws.Drawings.AddChart("C_" + a_sheet, a_type);
+            int series = a_type == eChartType.StockHLC ? 3 : 2;
+            for (int c = 2; c <= series + 1; c++)
+            {
+                if (a_type == eChartType.Bubble) ((ExcelBubbleChartSeries)chart.Series).Add(ExcelCellBase.GetAddress(2, c, 6, c), "A2:A6", "E2:E6");
+                else chart.Series.Add(ExcelCellBase.GetAddress(2, c, 6, c), "A2:A6");
+            }
+            return chart;
+        }
+
+        static XmlNamespaceManager ChartNs(XmlElement a_chartSpace)
+        {
+            var ns = new XmlNamespaceManager(a_chartSpace.OwnerDocument.NameTable);
+            ns.AddNamespace("c", "http://schemas.openxmlformats.org/drawingml/2006/chart");
+            ns.AddNamespace("a", "http://schemas.openxmlformats.org/drawingml/2006/main");
+            return ns;
+        }
+
+        // Every series has its children in the order of the schema, and no shape or line has more than one fill
+        static void AssertSeriesAreValid(XmlElement a_chartSpace, string a_what)
+        {
+            var ns = ChartNs(a_chartSpace);
+            foreach (XmlNode ser in a_chartSpace.SelectNodes("//c:ser", ns))
+            {
+                string[] names = ser.ChildNodes.OfType<XmlElement>().Select(e => e.LocalName).ToArray();
+                int[] positions = names.Select(n => Array.IndexOf(s_serOrder, n)).ToArray();
+                Assert.IsTrue(positions.All(p => p >= 0), a_what + ": " + string.Join(",", names));
+                CollectionAssert.AreEqual(positions.OrderBy(p => p).ToArray(), positions, a_what + ": " + string.Join(",", names));
+            }
+            foreach (XmlNode shape in a_chartSpace.SelectNodes("//c:spPr|//a:ln", ns))
+            {
+                int fills = shape.ChildNodes.OfType<XmlElement>().Count(e => e.LocalName.EndsWith("Fill"));
+                Assert.IsTrue(fills <= 1, a_what + ": " + shape.OuterXml);
+            }
+        }
+
+        // #19: the fill and the border of a series: after c:tx, with one fill per shape and per line, on every chart type.
+        // On a scatter and a stock chart the solid fill was added next to the noFill of the line, and Excel did not open the file.
+        [TestMethod]
+        public void Series_fill_and_border_are_valid_on_every_chart_type()
+        {
+            var types = new[]
+            {
+                eChartType.ColumnClustered, eChartType.BarStacked, eChartType.ColumnClustered3D, eChartType.Line, eChartType.LineMarkers, eChartType.Pie,
+                eChartType.Doughnut, eChartType.Area, eChartType.XYScatter, eChartType.XYScatterLines, eChartType.RadarMarkers, eChartType.Bubble, eChartType.StockHLC
+            };
+            foreach (var type in types)
+            {
+                using (var p = new ExcelPackage())
+                {
+                    var chart = FormatChart(p, type);
+                    chart.Series[0].Fill.Color = s_red;
+                    chart.Series[0].Border.Fill.Color = s_blue;
+                    chart.Series[0].Border.Width = 2;
+                    chart.Series[1].Border.Fill.Color = s_green;   // a border without a fill
+
+                    XmlElement space = SavedSheet(p, "xl/charts/chart1.xml");
+                    var ns = ChartNs(space);
+                    AssertSeriesAreValid(space, type.ToString());
+                    XmlNode first = space.SelectNodes("//c:ser", ns)[0];
+                    Assert.AreEqual("C00000", first.SelectSingleNode("c:spPr/a:solidFill/a:srgbClr/@val", ns).Value, type.ToString());
+                    Assert.AreEqual("0070C0", first.SelectSingleNode("c:spPr/a:ln/a:solidFill/a:srgbClr/@val", ns).Value, type.ToString());
+                    Assert.AreEqual("00B050", space.SelectNodes("//c:ser", ns)[1].SelectSingleNode("c:spPr/a:ln/a:solidFill/a:srgbClr/@val", ns).Value, type.ToString());
+                    Assert.AreEqual("spPr", ((XmlElement)first.SelectSingleNode("c:tx", ns).NextSibling).LocalName, type.ToString());
+
+                    using (var r = Reload(p))
+                    {
+                        var rc = (ExcelChart)r.Workbook.Worksheets["S"].Drawings[0];
+                        Assert.AreEqual(s_red.ToArgb() & 0xFFFFFF, rc.Series[0].Fill.Color.ToArgb() & 0xFFFFFF, type.ToString());
+                        Assert.AreEqual(s_blue.ToArgb() & 0xFFFFFF, rc.Series[0].Border.Fill.Color.ToArgb() & 0xFFFFFF, type.ToString());
+                    }
+                }
+            }
+
+            // no fill after a colour, and a colour after no fill: one of them is left
+            using (var p = new ExcelPackage())
+            {
+                var chart = FormatChart(p, eChartType.ColumnClustered);
+                chart.Series[0].Fill.Color = s_red;
+                chart.Series[0].Fill.Style = eFillStyle.NoFill;
+                chart.Series[1].Fill.Style = eFillStyle.NoFill;
+                chart.Series[1].Fill.Style = eFillStyle.SolidFill;
+                chart.Series[1].Fill.Color = s_green;
+                XmlElement space = SavedSheet(p, "xl/charts/chart1.xml");
+                var ns = ChartNs(space);
+                AssertSeriesAreValid(space, "no fill");
+                Assert.AreEqual("<a:noFill xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" />", space.SelectNodes("//c:ser", ns)[0].SelectSingleNode("c:spPr", ns).InnerXml);
+                Assert.AreEqual("00B050", space.SelectNodes("//c:ser", ns)[1].SelectSingleNode("c:spPr/a:solidFill/a:srgbClr/@val", ns).Value);
+            }
+
+            // the line colour of a scatter series without lines: the same line, through the property of the scatter series
+            using (var p = new ExcelPackage())
+            {
+                var chart = FormatChart(p, eChartType.XYScatter);
+                ((ExcelScatterChartSerie)chart.Series[0]).LineColor = s_blue;
+                ((ExcelScatterChartSerie)chart.Series[0]).MarkerColor = s_red;
+                XmlElement space = SavedSheet(p, "xl/charts/chart1.xml");
+                var ns = ChartNs(space);
+                AssertSeriesAreValid(space, "scatter line colour");
+                Assert.AreEqual("solidFill", string.Join(",", ChildNames((XmlElement)space.SelectNodes("//c:ser", ns)[0].SelectSingleNode("c:spPr/a:ln", ns))));
+                Assert.AreEqual("noFill", string.Join(",", ChildNames((XmlElement)space.SelectNodes("//c:ser", ns)[1].SelectSingleNode("c:spPr/a:ln", ns))), "the other series keeps its line without a fill");
+            }
+
+            // the other users of the fill class: the chart area, the plot area and a shape keep one fill too
+            using (var p = new ExcelPackage())
+            {
+                var chart = FormatChart(p, eChartType.ColumnClustered);
+                chart.Fill.Style = eFillStyle.NoFill;
+                chart.Fill.Color = s_red;
+                chart.Border.Fill.Style = eFillStyle.NoFill;
+                chart.Border.Fill.Color = s_blue;
+                chart.PlotArea.Fill.Color = s_green;
+                chart.PlotArea.Fill.Style = eFillStyle.NoFill;
+                var shape = chart.WorkSheet.Drawings.AddShape("Shape", eShapeStyle.Rect);
+                shape.Fill.Style = eFillStyle.NoFill;
+                shape.Fill.Color = s_green;
+                shape.Border.Fill.Style = eFillStyle.NoFill;
+                shape.Border.Fill.Color = s_blue;
+
+                XmlElement space = SavedSheet(p, "xl/charts/chart1.xml");
+                var ns = ChartNs(space);
+                AssertSeriesAreValid(space, "chart and plot area");
+                Assert.AreEqual("C00000", space.SelectSingleNode("c:spPr/a:solidFill/a:srgbClr/@val", ns).Value);
+                Assert.AreEqual("0070C0", space.SelectSingleNode("c:spPr/a:ln/a:solidFill/a:srgbClr/@val", ns).Value);
+                Assert.IsNotNull(space.SelectSingleNode("c:chart/c:plotArea/c:spPr/a:noFill", ns));
+
+                XmlElement drawing = SavedSheet(p, "xl/drawings/drawing1.xml");
+                var dns = new XmlNamespaceManager(drawing.OwnerDocument.NameTable);
+                dns.AddNamespace("xdr", "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing");
+                dns.AddNamespace("a", "http://schemas.openxmlformats.org/drawingml/2006/main");
+                XmlNode sp = drawing.SelectSingleNode("//xdr:sp/xdr:spPr", dns);
+                Assert.AreEqual(1, sp.ChildNodes.OfType<XmlElement>().Count(e => e.LocalName.EndsWith("Fill")), sp.OuterXml);
+                Assert.AreEqual(1, sp.SelectSingleNode("a:ln", dns).ChildNodes.OfType<XmlElement>().Count(e => e.LocalName.EndsWith("Fill")), sp.OuterXml);
+                Assert.AreEqual("00B050", sp.SelectSingleNode("a:solidFill/a:srgbClr/@val", dns).Value);
+            }
+        }
+
+        // #19: what a series could have before (markers, line colour, explosion, data labels, trendlines) is written in the order of the schema too
+        [TestMethod]
+        public void Series_children_are_in_the_order_of_the_schema()
+        {
+            using (var p = new ExcelPackage())
+            {
+                var bar = FormatChart(p, eChartType.ColumnClustered, "Bar");
+                bar.Series[0].TrendLines.Add(eTrendLine.Linear);
+                ((ExcelBarChartSerie)bar.Series[0]).DataLabel.ShowValue = true;
+                bar.Series[0].Fill.Color = s_red;
+                bar.Series[0].DataPoints.Add(1).Fill.Color = s_green;
+                bar.Series[0].AddErrorBars(eErrorBarType.Both, eErrorValueType.FixedValue, 1);
+                Assert.AreEqual("idx,order,tx,spPr,invertIfNegative,dPt,dLbls,trendline,errBars,cat,val",
+                    string.Join(",", ChildNames((XmlElement)SavedSheet(p, "xl/charts/chart1.xml").SelectSingleNode("//c:ser", ChartNs(SavedSheet(p, "xl/charts/chart1.xml"))))));
+
+                var line = FormatChart(p, eChartType.LineMarkers, "Line");
+                var ls = (ExcelLineChartSerie)line.Series[0];
+                ls.DataLabel.ShowValue = true;
+                ls.TrendLines.Add(eTrendLine.MovingAvgerage);
+                ls.LineColor = s_blue; ls.Marker = eMarkerStyle.Circle; ls.MarkerSize = 9; ls.MarkerLineColor = s_red; ls.Smooth = true;
+                ls.DataPoints.Add(0).MarkerFill.Color = s_green;
+
+                var pie = FormatChart(p, eChartType.Pie, "Pie");
+                var ps = (ExcelPieChartSerie)pie.Series[0];
+                ps.DataPoints.Add(2).Fill.Color = s_green;
+                ps.DataLabel.ShowPercent = true;
+                ps.Explosion = 10;
+                ps.Fill.Color = s_red;
+
+                var scatter = FormatChart(p, eChartType.XYScatterLines, "Scatter");
+                var ss = (ExcelScatterChartSerie)scatter.Series[0];
+                ss.DataLabel.ShowValue = true;
+                ss.Marker = eMarkerStyle.Diamond; ss.MarkerSize = 8; ss.MarkerColor = s_red; ss.LineColor = s_blue;
+                ss.AddErrorBars(eErrorBarType.Both, eErrorValueType.Percentage, 5);
+
+                for (int i = 1; i <= 4; i++) AssertSeriesAreValid(SavedSheet(p, "xl/charts/chart" + i + ".xml"), "chart" + i);
+                XmlElement lineSpace = SavedSheet(p, "xl/charts/chart2.xml");
+                Assert.AreEqual("symbol,size,spPr", string.Join(",", ChildNames((XmlElement)lineSpace.SelectSingleNode("//c:ser/c:marker", ChartNs(lineSpace)))));
+                XmlElement pieSpace = SavedSheet(p, "xl/charts/chart3.xml");
+                Assert.AreEqual("idx,order,tx,spPr,explosion,dPt,dLbls,cat,val", string.Join(",", ChildNames((XmlElement)pieSpace.SelectSingleNode("//c:ser", ChartNs(pieSpace)))));
+            }
+        }
+
+        // #19: single points of a series with a format of their own
+        [TestMethod]
+        public void Data_points_are_written_as_Excel_writes_them()
+        {
+            using (var p = new ExcelPackage())
+            {
+                var bar = FormatChart(p, eChartType.ColumnClustered, "Bar");
+                var s = bar.Series[0];
+                Assert.AreEqual(0, s.DataPoints.Count);
+                Assert.IsNull(s.DataPoints[2]);
+                ExcelChartDataPoint p2 = s.DataPoints.Add(2);
+                p2.Fill.Color = s_green;
+                s.DataPoints.Add(4).Border.Fill.Color = s_blue;
+                s.DataPoints.Add(0).Fill.Color = s_red;
+                Assert.AreSame(p2, s.DataPoints.Add(2), "the point that is there");
+                Assert.AreSame(p2, s.DataPoints[2]);
+                Assert.AreEqual("0,2,4", string.Join(",", s.DataPoints.Select(x => x.Index)));
+
+                var line = FormatChart(p, eChartType.Line, "Line");
+                line.Series[0].DataPoints.Add(1).MarkerFill.Color = s_green;
+                line.Series[0].DataPoints[1].MarkerBorder.Fill.Color = s_blue;
+                line.Series[0].DataPoints[1].Border.Fill.Color = s_red;
+
+                XmlElement space = SavedSheet(p, "xl/charts/chart1.xml");
+                var ns = ChartNs(space);
+                AssertSeriesAreValid(space, "bar");
+                XmlNodeList points = space.SelectNodes("//c:ser[1]/c:dPt", ns);
+                Assert.AreEqual("0,2,4", string.Join(",", points.OfType<XmlNode>().Select(n => n.SelectSingleNode("c:idx/@val", ns).Value)));
+                Assert.AreEqual("<c:idx val=\"2\" /><c:invertIfNegative val=\"0\" /><c:bubble3D val=\"0\" /><c:spPr><a:solidFill><a:srgbClr val=\"00B050\" /></a:solidFill></c:spPr>",
+                    points[1].InnerXml.Replace(" xmlns:c=\"http://schemas.openxmlformats.org/drawingml/2006/chart\"", "").Replace(" xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"", ""));
+                XmlElement lineSpace = SavedSheet(p, "xl/charts/chart2.xml");
+                AssertSeriesAreValid(lineSpace, "line");
+                Assert.AreEqual("<c:idx val=\"1\" /><c:marker><c:spPr><a:solidFill><a:srgbClr val=\"00B050\" /></a:solidFill><a:ln><a:solidFill><a:srgbClr val=\"0070C0\" /></a:solidFill></a:ln></c:spPr></c:marker><c:bubble3D val=\"0\" /><c:spPr><a:ln><a:solidFill><a:srgbClr val=\"C00000\" /></a:solidFill></a:ln></c:spPr>",
+                    lineSpace.SelectSingleNode("//c:ser[1]/c:dPt", ChartNs(lineSpace)).InnerXml.Replace(" xmlns:c=\"http://schemas.openxmlformats.org/drawingml/2006/chart\"", "").Replace(" xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"", ""));
+
+                using (var r = Reload(p))
+                {
+                    var rs = ((ExcelChart)r.Workbook.Worksheets["Bar"].Drawings[0]).Series[0];
+                    Assert.AreEqual(3, rs.DataPoints.Count);
+                    Assert.AreEqual(s_green.ToArgb() & 0xFFFFFF, rs.DataPoints[2].Fill.Color.ToArgb() & 0xFFFFFF);
+                    Assert.IsTrue(rs.DataPoints.Remove(2));
+                    Assert.IsFalse(rs.DataPoints.Remove(2));
+                    rs.DataPoints.Add(3).Fill.Color = s_green;
+                    XmlElement again = SavedSheet(r, "xl/charts/chart1.xml");
+                    Assert.AreEqual("0,3,4", string.Join(",", again.SelectNodes("//c:ser[1]/c:dPt/c:idx/@val", ChartNs(again)).OfType<XmlNode>().Select(n => n.Value)));
+                    AssertSeriesAreValid(again, "after a load");
+                }
+
+                var surface = FormatChart(p, eChartType.Surface, "Surface");
+                Assert.ThrowsException<NotSupportedException>(() => surface.Series[0].DataPoints.Add(0));
+                Assert.ThrowsException<ArgumentOutOfRangeException>(() => bar.Series[0].DataPoints.Add(-1));
+            }
+        }
+
+        // #19: error bars, for the chart types that have them
+        [TestMethod]
+        public void Error_bars_are_written_as_Excel_writes_them()
+        {
+            string c = " xmlns:c=\"http://schemas.openxmlformats.org/drawingml/2006/chart\"";
+            using (var p = new ExcelPackage())
+            {
+                var bar = FormatChart(p, eChartType.ColumnClustered, "Bar");
+                Assert.IsNull(bar.Series[0].ErrorBars);
+                bar.Series[0].AddErrorBars(eErrorBarType.Plus, eErrorValueType.Percentage, 5);
+                var e = bar.Series[0].AddErrorBars(eErrorBarType.Both, eErrorValueType.FixedValue, 1.5);   // in place of the first
+                bar.Series[1].AddErrorBars(eErrorBarType.Minus, eErrorValueType.StandardError);
+                Assert.AreEqual(eErrorBarType.Both, bar.Series[0].ErrorBars.Type);
+                Assert.AreEqual(1.5, bar.Series[0].ErrorBars.Value);
+
+                var scatter = FormatChart(p, eChartType.XYScatter, "Scatter");
+                scatter.Series[0].AddErrorBars(eErrorBarType.Both, eErrorValueType.StandardDeviation, 2);            // y first
+                scatter.Series[0].AddErrorBars(eErrorBarType.Plus, eErrorValueType.Percentage, 10, horizontal: true);  // then x: written before y
+                scatter.Series[0].ErrorBars.Border.Fill.Color = s_blue;
+                scatter.Series[0].ErrorBars.NoEndCap = true;
+
+                var line = FormatChart(p, eChartType.Line, "Line");
+                line.Series[0].AddErrorBars(eErrorBarType.Both, eErrorValueType.FixedValue, 3);
+                line.Series[1].AddErrorBars(eErrorBarType.Both, eErrorValueType.FixedValue, 3);
+                line.Series[1].RemoveErrorBars();
+
+                XmlElement space = SavedSheet(p, "xl/charts/chart1.xml");
+                var ns = ChartNs(space);
+                AssertSeriesAreValid(space, "bar");
+                Assert.AreEqual(1, space.SelectNodes("//c:ser[1]/c:errBars", ns).Count);
+                Assert.AreEqual("<c:errBarType val=\"both\" /><c:errValType val=\"fixedVal\" /><c:noEndCap val=\"0\" /><c:val val=\"1.5\" />", space.SelectSingleNode("//c:ser[1]/c:errBars", ns).InnerXml.Replace(c, ""));
+                Assert.AreEqual("<c:errBarType val=\"minus\" /><c:errValType val=\"stdErr\" /><c:noEndCap val=\"0\" />", space.SelectSingleNode("//c:ser[2]/c:errBars", ns).InnerXml.Replace(c, ""));
+
+                XmlElement scatterSpace = SavedSheet(p, "xl/charts/chart2.xml");
+                AssertSeriesAreValid(scatterSpace, "scatter");
+                XmlNodeList bars = scatterSpace.SelectNodes("//c:ser[1]/c:errBars", ChartNs(scatterSpace));
+                Assert.AreEqual(2, bars.Count);
+                Assert.AreEqual("<c:errDir val=\"x\" /><c:errBarType val=\"plus\" /><c:errValType val=\"percentage\" /><c:noEndCap val=\"0\" /><c:val val=\"10\" />", bars[0].InnerXml.Replace(c, ""));
+                Assert.AreEqual("<c:errDir val=\"y\" /><c:errBarType val=\"both\" /><c:errValType val=\"stdDev\" /><c:noEndCap val=\"1\" /><c:val val=\"2\" /><c:spPr><a:ln><a:solidFill><a:srgbClr val=\"0070C0\" /></a:solidFill></a:ln></c:spPr>",
+                    bars[1].InnerXml.Replace(c, "").Replace(" xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"", ""));
+
+                XmlElement lineSpace = SavedSheet(p, "xl/charts/chart3.xml");
+                Assert.AreEqual("y", lineSpace.SelectSingleNode("//c:ser[1]/c:errBars/c:errDir/@val", ChartNs(lineSpace)).Value);
+                Assert.AreEqual(0, lineSpace.SelectNodes("//c:ser[2]/c:errBars", ChartNs(lineSpace)).Count);
+
+                using (var r = Reload(p))
+                {
+                    var rs = ((ExcelChart)r.Workbook.Worksheets["Scatter"].Drawings[0]).Series[0];
+                    Assert.AreEqual(eErrorValueType.StandardDeviation, rs.ErrorBars.ValueType);
+                    Assert.IsTrue(rs.ErrorBars.NoEndCap);
+                    Assert.IsFalse(rs.ErrorBars.Horizontal);
+                    Assert.AreEqual(eErrorBarType.Plus, rs.ErrorBarsX.Type);
+                    Assert.AreEqual(10d, rs.ErrorBarsX.Value);
+                    Assert.IsNull(((ExcelChart)r.Workbook.Worksheets["Bar"].Drawings[0]).Series[0].ErrorBarsX);
+                }
+
+                var pie = FormatChart(p, eChartType.Pie, "Pie");
+                Assert.ThrowsException<NotSupportedException>(() => pie.Series[0].AddErrorBars(eErrorBarType.Both, eErrorValueType.FixedValue, 1));
+                Assert.ThrowsException<NotSupportedException>(() => bar.Series[0].AddErrorBars(eErrorBarType.Both, eErrorValueType.FixedValue, 1, horizontal: true));
+                Assert.ThrowsException<ArgumentOutOfRangeException>(() => bar.Series[0].AddErrorBars(eErrorBarType.Both, eErrorValueType.FixedValue, -1));
+            }
+        }
+        #endregion
+
         // The sheet of the filter tests: a header and ten rows (2 to 11) with a name, a number shown with two decimals,
         // a date, a note with empty cells in rows 5 and 9, and a group. The same data as in the file Excel filtered itself.
         static ExcelWorksheet FilterSheet(ExcelPackage a_package, string a_name = "S")

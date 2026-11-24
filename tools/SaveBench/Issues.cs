@@ -127,6 +127,86 @@ static class Issues
             p.SaveAs(new FileInfo(Path.Combine(a_dir, "issue9_ignored_errors.xlsx")));
         }
 
+        // #19: the format of series and of single points, and error bars, one chart type per sheet (the sheet has the name of the type).
+        // In every chart: series 1 has the fill C00000 and the border or line 0070C0, its third point has the fill (or the marker
+        // fill) 00B050, and it has error bars where the chart type has them. chart-format-in-excel.ps1 reads these back from Excel.
+        using (var p = new ExcelPackage())
+        {
+            var red = System.Drawing.Color.FromArgb(0xC0, 0x00, 0x00);
+            var blue = System.Drawing.Color.FromArgb(0x00, 0x70, 0xC0);
+            var green = System.Drawing.Color.FromArgb(0x00, 0xB0, 0x50);
+            var types = new[]
+            {
+                eChartType.ColumnClustered, eChartType.BarStacked, eChartType.ColumnClustered3D, eChartType.Line, eChartType.LineMarkers,
+                eChartType.Pie, eChartType.Doughnut, eChartType.Area, eChartType.XYScatter, eChartType.XYScatterLines, eChartType.RadarMarkers,
+                eChartType.Bubble, eChartType.StockHLC, eChartType.StockVHLC
+            };
+            foreach (var type in types)
+            {
+                var ws = p.Workbook.Worksheets.Add(type.ToString());
+                ws.Cells["A1"].Value = "Cat"; ws.Cells["B1"].Value = "V1"; ws.Cells["C1"].Value = "V2"; ws.Cells["D1"].Value = "V3"; ws.Cells["E1"].Value = "V4";
+                for (int r = 2; r <= 7; r++)
+                {
+                    ws.Cells[r, 1].Value = r - 1; ws.Cells[r, 2].Value = r * 2 + 10; ws.Cells[r, 3].Value = 9 - r; ws.Cells[r, 4].Value = r + 3; ws.Cells[r, 5].Value = r + 1;
+                }
+                var chart = ws.Drawings.AddChart("Chart_" + type, type);
+                bool stock = type == eChartType.StockHLC || type == eChartType.StockVHLC;
+                int series = type == eChartType.StockVHLC ? 4 : type == eChartType.StockHLC ? 3 : 2;
+                ExcelChartSerie first = null;
+                for (int c = 0; c < series; c++)
+                {
+                    var s = type == eChartType.Bubble
+                        ? ((ExcelBubbleChartSeries)chart.Series).Add(ExcelCellBase.GetAddress(2, c + 2, 7, c + 2), "A2:A7", "E2:E7")
+                        : chart.Series.Add(ExcelCellBase.GetAddress(2, c + 2, 7, c + 2), "A2:A7");
+                    s.HeaderAddress = ws.Cells[1, c + 2];
+                    if (first == null) first = s;
+                }
+                bool markers = type == eChartType.Line || type == eChartType.LineMarkers || type == eChartType.XYScatter || type == eChartType.XYScatterLines || type == eChartType.RadarMarkers;
+                first.Border.Fill.Color = blue;
+                first.Border.Width = 2;
+                if (!markers) first.Fill.Color = red;
+                if (!stock)
+                {
+                    var point = first.DataPoints.Add(2);
+                    if (markers) { point.MarkerFill.Color = green; point.MarkerBorder.Fill.Color = green; }
+                    else point.Fill.Color = green;
+                    first.DataPoints.Add(4).Border.Fill.Color = green;   // a second point, added after the third, with a border only
+                    first.DataPoints.Add(0).Border.Width = 3;            // and one before them
+                }
+                bool bars = type == eChartType.ColumnClustered || type == eChartType.BarStacked || type == eChartType.Line || type == eChartType.LineMarkers ||
+                            type == eChartType.Area || type == eChartType.XYScatter || type == eChartType.XYScatterLines || type == eChartType.Bubble;
+                if (bars)
+                {
+                    var e = first.AddErrorBars(eErrorBarType.Both, eErrorValueType.FixedValue, 1.5);
+                    e.Border.Fill.Color = blue;
+                    if (type == eChartType.XYScatter || type == eChartType.Bubble) first.AddErrorBars(eErrorBarType.Plus, eErrorValueType.Percentage, 10, true);
+                    chart.Series[1].AddErrorBars(eErrorBarType.Minus, eErrorValueType.StandardDeviation, 2);
+                }
+                // the second series of the scatter chart without lines gets a line through the property of the scatter series
+                if (type == eChartType.XYScatter) ((ExcelScatterChartSerie)chart.Series[1]).LineColor = red;
+                // the things a series could have before, to see that they still end up in a file Excel opens
+                if (type == eChartType.ColumnClustered || type == eChartType.Line) first.TrendLines.Add(eTrendLine.Linear);
+                if (type == eChartType.ColumnClustered) ((ExcelBarChartSerie)first).DataLabel.ShowValue = true;
+                if (type == eChartType.Line) ((ExcelLineChartSerie)first).DataLabel.ShowValue = true;
+                if (type == eChartType.Pie) { ((ExcelPieChartSerie)first).DataLabel.ShowPercent = true; ((ExcelPieChartSerie)first).Explosion = 10; }
+                if (type == eChartType.XYScatterLines) ((ExcelScatterChartSerie)first).DataLabel.ShowValue = true;
+                if (type == eChartType.LineMarkers)
+                {
+                    var line = (ExcelLineChartSerie)first;
+                    line.LineColor = blue; line.Marker = eMarkerStyle.Circle; line.MarkerSize = 9; line.MarkerLineColor = red; line.Smooth = true;
+                }
+                if (type == eChartType.XYScatterLines)
+                {
+                    var scatter = (ExcelScatterChartSerie)first;
+                    scatter.Marker = eMarkerStyle.Diamond; scatter.MarkerSize = 8; scatter.MarkerColor = red; scatter.LineColor = blue;
+                }
+                if (type == eChartType.RadarMarkers) ((ExcelRadarChartSerie)first).MarkerSize = 7;
+                chart.SetPosition(1, 0, 6, 0);
+                chart.SetSize(520, 320);
+            }
+            p.SaveAs(new FileInfo(Path.Combine(a_dir, "issue19_chart_format.xlsx")));
+        }
+
         // #17: filters and sorts of an autofilter, one case per sheet. filters-in-excel.ps1 lists the hidden rows of each sheet,
         // lets Excel apply the filter again and lists them again: the two must be the same.
         using (var p = new ExcelPackage())

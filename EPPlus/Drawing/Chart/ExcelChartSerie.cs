@@ -58,7 +58,10 @@ namespace OfficeOpenXml.Drawing.Chart
            _chartSeries = chartSeries;
            _node=node;
            _ns=ns;
-           SchemaNodeOrder = new string[] { "idx", "order","spPr", "tx", "marker", "trendline", "explosion","invertIfNegative", "dLbls", "cat", "val", "xVal", "yVal", "bubbleSize", "bubble3D", "smooth" };
+           // orabooster-epplus: the order of the schema (issue #19). The list was
+           // idx, order, spPr, tx, marker, trendline, explosion, invertIfNegative, dLbls, cat, val, xVal, yVal, bubbleSize, bubble3D, smooth:
+           // with it the line colour of a line series put c:spPr before c:tx, and the explosion of a pie slice came after the points.
+           SchemaNodeOrder = SerieNodeOrder;
 
            if (chartSeries.Chart.ChartType == eChartType.XYScatter ||
                chartSeries.Chart.ChartType == eChartType.XYScatterLines ||
@@ -244,7 +247,22 @@ namespace OfficeOpenXml.Drawing.Chart
                 return _trendLines;
             }
         }
+        // orabooster-epplus: issue #19. The children of c:ser in the order of the schema (every chart type has a part of this list,
+        // in this order), then the children of c:spPr and of a:ln. The fill and the border of a series are made with this order,
+        // so c:spPr goes after c:tx. It was appended after c:cat and c:val, out of the order of the schema.
+        // symbol and size are the children of c:marker that come before its c:spPr; a series has no child of these names.
+        internal static readonly string[] SerieNodeOrder =
+        {
+            "idx", "order", "tx", "symbol", "size", "spPr", "invertIfNegative", "pictureOptions", "marker", "explosion", "dPt", "dLbls", "trendline", "errBars",
+            "cat", "val", "xVal", "yVal", "smooth", "shape", "bubbleSize", "bubble3D", "extLst",
+            "xfrm", "custGeom", "prstGeom", "noFill", "solidFill", "gradFill", "blipFill", "pattFill", "grpFill", "ln",
+            "prstDash", "custDash", "round", "bevel", "miter", "headEnd", "tailEnd"
+        };
+
         ExcelDrawingFill _fill = null;
+        /// <summary>
+        /// The fill of the series: the columns, the area, the pie slices.
+        /// </summary>
         public ExcelDrawingFill Fill
         {
             get
@@ -252,11 +270,15 @@ namespace OfficeOpenXml.Drawing.Chart
                 if (_fill == null)
                 {
                     _fill = new ExcelDrawingFill(NameSpaceManager, TopNode, "c:spPr");
+                    _fill.SchemaNodeOrder = SerieNodeOrder;
                 }
                 return _fill;
             }
         }
         ExcelDrawingBorder _border = null;
+        /// <summary>
+        /// The border of the series, or the line of a line series.
+        /// </summary>
         public ExcelDrawingBorder Border
         {
             get
@@ -264,9 +286,92 @@ namespace OfficeOpenXml.Drawing.Chart
                 if (_border == null)
                 {
                     _border = new ExcelDrawingBorder(NameSpaceManager, TopNode, "c:spPr/a:ln");
+                    _border.SchemaNodeOrder = SerieNodeOrder;
+                    _border.Fill.SchemaNodeOrder = SerieNodeOrder;
                 }
                 return _border;
             }
+        }
+
+        // orabooster-epplus: issue #19. Puts a new child of c:ser where the schema has it: before the first child that comes later
+        // in the order. A file with a child out of order (c:spPr at the end, from a build before this one) still gets it in a valid place.
+        internal void InsertInOrder(XmlElement child)
+        {
+            InsertInOrder(TopNode, child);
+        }
+
+        internal static void InsertInOrder(XmlNode ser, XmlElement child)
+        {
+            int position = Array.IndexOf(SerieNodeOrder, child.LocalName);
+            foreach (XmlNode n in ser.ChildNodes)
+            {
+                if (n.NodeType != XmlNodeType.Element) continue;
+                int p = Array.IndexOf(SerieNodeOrder, n.LocalName);
+                if (p > position)
+                {
+                    ser.InsertBefore(child, n);
+                    return;
+                }
+            }
+            ser.AppendChild(child);
+        }
+
+        /// <summary>
+        /// The name of the chart element of the series: barChart, lineChart, pieChart ...
+        /// </summary>
+        internal string ChartNodeName
+        {
+            get { return _chartSeries.Chart.ChartNode.LocalName; }
+        }
+
+        ExcelChartDataPointCollection _dataPoints = null;
+        /// <summary>
+        /// Single points of the series with a format of their own: one column, one pie slice, one marker.
+        /// </summary>
+        public ExcelChartDataPointCollection DataPoints
+        {
+            get
+            {
+                if (_dataPoints == null) _dataPoints = new ExcelChartDataPointCollection(this);
+                return _dataPoints;
+            }
+        }
+
+        /// <summary>
+        /// The error bars of the series, or null when it has none. For a scatter or bubble series these are the vertical ones.
+        /// </summary>
+        public ExcelChartErrorBars ErrorBars
+        {
+            get { return ExcelChartErrorBars.Find(this, false); }
+        }
+
+        /// <summary>
+        /// The horizontal error bars of a scatter or bubble series, or null when it has none.
+        /// </summary>
+        public ExcelChartErrorBars ErrorBarsX
+        {
+            get { return ExcelChartErrorBars.Find(this, true); }
+        }
+
+        /// <summary>
+        /// Gives the series error bars, in place of the ones it has in that direction.
+        /// Bar, line, area, scatter and bubble charts have error bars; the other chart types do not.
+        /// </summary>
+        /// <param name="type">Above and below the point, or one of them</param>
+        /// <param name="valueType">What the value means</param>
+        /// <param name="value">The fixed value, the percentage or the number of standard deviations. Not used for the standard error.</param>
+        /// <param name="horizontal">Horizontal error bars, for a scatter or bubble series</param>
+        public ExcelChartErrorBars AddErrorBars(eErrorBarType type, eErrorValueType valueType, double value = 1, bool horizontal = false)
+        {
+            return ExcelChartErrorBars.Add(this, type, valueType, value, horizontal);
+        }
+
+        /// <summary>
+        /// Takes the error bars off the series, in both directions.
+        /// </summary>
+        public void RemoveErrorBars()
+        {
+            foreach (XmlNode n in TopNode.SelectNodes("c:errBars", NameSpaceManager)) TopNode.RemoveChild(n);
         }
     }
 }

@@ -86,7 +86,10 @@ namespace OfficeOpenXml.Drawing.Chart
                 }
             }
             var node=_serie.TopNode.OwnerDocument.CreateElement("c","trendline", ExcelPackage.schemaChart);
-            _serie.TopNode.InsertAfter(node, insertAfter);
+            // orabooster-epplus: the first trendline goes where the schema has it, after the points and the data labels and before
+            // the error bars (issue #19). After c:marker or c:tx it came before c:spPr and c:invertIfNegative.
+            if (_list.Count > 0) _serie.TopNode.InsertAfter(node, insertAfter);
+            else _serie.InsertInOrder(node);
 
             tl = new ExcelChartTrendline(_serie.NameSpaceManager, node);
             tl.Type = Type;
