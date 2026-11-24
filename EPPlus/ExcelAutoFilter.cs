@@ -73,7 +73,8 @@ namespace OfficeOpenXml
         }
 
         /// <summary>
-        /// Shows the rows whose cell in the column has one of the texts, as the cell shows it (with its number format).
+        /// Shows the rows whose cell in the column has one of the texts, as the cell shows it: with its number format, in the
+        /// culture of the thread (a 12 with the format 0.00 is "12.00", or "12,00" where the decimal sign is a comma).
         /// Upper and lower case are the same. A null or empty text stands for the empty cells.
         /// </summary>
         /// <param name="column">The column within the autofilter, zero based</param>

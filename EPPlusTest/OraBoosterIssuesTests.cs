@@ -673,6 +673,22 @@ namespace EPPlusTest
         [TestMethod]
         public void AutoFilter_conditions_follow_the_rules_of_Excel()
         {
+            // The text a cell shows depends on the culture (12.00 or 12,00), and other tests of this project leave another
+            // culture on the thread. The values below are the texts of en-US.
+            var culture = System.Threading.Thread.CurrentThread.CurrentCulture;
+            System.Threading.Thread.CurrentThread.CurrentCulture = new System.Globalization.CultureInfo("en-US");
+            try
+            {
+                AutoFilterConditions();
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = culture;
+            }
+        }
+
+        static void AutoFilterConditions()
+        {
             using (var p = new ExcelPackage())
             {
                 // empty cells: rows 5 and 9

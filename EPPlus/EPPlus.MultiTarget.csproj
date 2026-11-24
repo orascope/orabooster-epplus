@@ -25,6 +25,7 @@
 		- Ignored errors of a worksheet: ExcelWorksheet.IgnoredErrors (issue #9).
 		- Stock charts with volume: StockVHLC and StockVOHLC (issue #11).
 		- AutoFitColumns is 3 to 7 times faster, with the same widths (issue #14).
+		- Filters and sort of an autofilter: ExcelWorksheet.AutoFilter, ExcelTable.AutoFilter (issue #17).
 		4.5.3.8-ora.2
 		- Deleting a table no longer leaves the next table id at 0 or at an id in use (issue #2).
 		- Column3D, StockHLC and StockOHLC charts; the volume stock charts throw NotSupportedException before anything is added (issue #3).

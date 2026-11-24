@@ -41,6 +41,17 @@ New features, taken one at a time from the candidate list in #8. They are writte
   - Found on the way, not fixed here: `AutoFitColumns` throws when a cell with a date format holds a number that is not a date (#15).
   - `tools/SaveBench`: `autofit`, `autofitsample`, `autofitrandom` (new `AutoFitBench.cs`) and `autofit-in-excel.ps1`.
   - Tests: 2 new. Whole suite: 1,172 passed, 10 failed, 214 skipped (the same 10 as before).
+- **#17** Filters and sort of an autofilter: `ExcelWorksheet.AutoFilter` and `ExcelTable.AutoFilter` (new `ExcelAutoFilter.cs`: `ExcelAutoFilter`, `eFilterOperator`). Sorting a range was already there (`ExcelRangeBase.Sort`).
+  - `ShowValues(column, texts)`: the rows whose cell shows one of the texts (`filters` / `filter`; an empty text is `blank="1"`). `ShowWhere(column, operator, value)` and the form with two conditions joined by and / or (`customFilters` / `customFilter`). `Clear`, `IsFiltered`. The column is zero based within the autofilter, as in `ExcelRangeBase.Sort`.
+  - `Sort(column, descending)` sorts the rows below the buttons and records the sort so that the button shows the arrow: `sortState` inside `autoFilter` on a worksheet, after `autoFilter` in a table, as Excel writes them. `ClearSort` removes the record.
+  - Excel does not apply a filter when it opens a file, so the rows that do not pass are hidden here: when the package is saved, if a filter was set or taken off through this class, or when `Apply` is called. A sheet where the class was not used is not touched.
+  - A filter of a kind that is not handled (top 10, dynamic, colour, icon, date groups) is kept as it is and left to Excel: its column lets every row pass and no row is shown that was hidden.
+  - The conditions follow what Excel 16 does, which is not always what one would guess: "equal" compares with the text the cell shows (a 12 shown as 12.00 is not equal to 12), "not equal" and the greater / less operators compare the number; a number cell does not match a text with wildcards; "not empty" is "not equal" to one space. For `ShowWhere(column, Equal, number or date)` the class writes "not less and not greater", which compares the number whatever the format is.
+  - The text a cell shows depends on the culture of the thread (12.00 or 12,00), as it does in Excel; the texts given to `ShowValues` are compared with it.
+  - Checked in Excel 16 with `SaveBench issues` and the new `tools/SaveBench/filters-in-excel.ps1`: for each of the 34 sheets of `issue17_autofilter.xlsx` (value lists, empty cells, numbers as they are shown, dates, one and two conditions with every operator, wildcards, a column of numbers and texts, sorts, tables) the rows hidden in the file are exactly the rows Excel hides when it applies the filter again; Excel sees the filters on the same columns and the same sort; the file opens without a repair.
+  - `variety`, `keep`, the autofit samples and the issue 2, 3, 9 and 11 samples of `SaveBench` are part by part the same as before.
+  - Not done: when rows or columns are inserted or deleted after `Sort`, the recorded sort is not moved (call `Sort` again or `ClearSort`).
+  - Tests: 5 new. Whole suite: 1,177 passed, 10 failed, 214 skipped (the same 10 as before).
 
 ## 4.5.3.8-ora.2 (2026-11-24, OraScope Co.,Ltd.)
 
