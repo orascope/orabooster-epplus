@@ -168,13 +168,17 @@ namespace OfficeOpenXml
                 {
                     return part;
                 }
+                // orabooster-epplus: the numbers in the invariant culture (issue #23). They were written with the culture of the thread,
+                // and the minus sign of sv-SE, nb-NO, fi-FI and others is U+2212 on .NET 5 and later: FormulaR1C1 returned R[−1]C[−5],
+                // and the parser of R1C1 references, which reads with the invariant culture, did not read that back when the
+                // library translated a formula through R1C1 to copy it to another cell.
                 if (addrRow > 0)
                 {
-                    sb.Append(fixRow ? $"R{addrRow}" : (addrRow == row ? "R" : $"R[{addrRow - row}]"));
+                    sb.Append(fixRow ? "R" + addrRow.ToString(CultureInfo.InvariantCulture) : (addrRow == row ? "R" : "R[" + (addrRow - row).ToString(CultureInfo.InvariantCulture) + "]"));
                 }
                 if (addrCol > 0)
                 {
-                    sb.Append(fixCol ? $"C{addrCol}" : (addrCol == col ? "C" : $"C[{addrCol - col}]"));
+                    sb.Append(fixCol ? "C" + addrCol.ToString(CultureInfo.InvariantCulture) : (addrCol == col ? "C" : "C[" + (addrCol - col).ToString(CultureInfo.InvariantCulture) + "]"));
                 }
                 return sb.ToString();
             }

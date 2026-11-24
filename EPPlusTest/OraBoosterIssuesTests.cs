@@ -589,6 +589,48 @@ namespace EPPlusTest
             }
         }
 
+        // #23: the offsets of a relative R1C1 reference are written with the invariant culture. In a culture whose minus sign is
+        // U+2212 on .NET 5 and later (sv-SE, nb-NO, fi-FI) FormulaR1C1 returned R[−1]C[−5], which the library itself could not read back.
+        [TestMethod]
+        public void R1C1_references_do_not_depend_on_the_culture()
+        {
+            var culture = System.Threading.Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                foreach (string name in new[] { "sv-SE", "nb-NO", "fi-FI", "en-US", "ko-KR" })
+                {
+                    System.Threading.Thread.CurrentThread.CurrentCulture = new System.Globalization.CultureInfo(name);
+                    using (var p = new ExcelPackage())
+                    {
+                        var ws = p.Workbook.Worksheets.Add("S");
+                        ws.Cells["G7"].Formula = "B6";
+                        Assert.AreEqual("R[-1]C[-5]", ws.Cells["G7"].FormulaR1C1, name);
+                        ws.Cells["D2"].Formula = "VLOOKUP(C2,A:B,1,0)";
+                        Assert.AreEqual("VLOOKUP(RC[-1],C[-3]:C[-2],1,0)", ws.Cells["D2"].FormulaR1C1, name);
+
+                        // what the library wrote, it reads back
+                        ws.Cells["G9"].FormulaR1C1 = ws.Cells["G7"].FormulaR1C1;
+                        Assert.AreEqual("B8", ws.Cells["G9"].Formula, name);
+
+                        // a formula copied to other cells moves its references: left and up of the cell
+                        ws.Cells["H10"].Formula = "SUM(F8:G9)+E10";
+                        ws.Cells["H10"].Copy(ws.Cells["J12"]);
+                        Assert.AreEqual("SUM(H10:I11)+G12", ws.Cells["J12"].Formula, name);
+                        ws.Cells["H10"].Copy(ws.Cells["H13"]);
+                        Assert.AreEqual("SUM(F11:G12)+E13", ws.Cells["H13"].Formula, name);
+                        // a formula set on a range is a shared formula: each cell has its own references
+                        ws.Cells["M10:M12"].Formula = "L9*2";
+                        Assert.AreEqual("L11*2", ws.Cells["M12"].Formula, name);
+                        Assert.AreEqual("R[-1]C[-1]*2", ws.Cells["M12"].FormulaR1C1, name);
+                    }
+                }
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = culture;
+            }
+        }
+
         #region #21: the chart types of Excel 2016
         const string NsCx = "http://schemas.microsoft.com/office/drawing/2014/chartex";
 

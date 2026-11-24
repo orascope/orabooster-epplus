@@ -177,11 +177,17 @@ namespace EPPlusTest
                 Assert.AreEqual(ws.Cells["F5"].Style.Font.UnderLineType, ExcelUnderLineType.None);
                 Assert.AreEqual(ws.Cells["F5"].Style.Font.UnderLine, false);
 
-                Assert.AreEqual(ws.Cells["T20"].GetValue<string>(), 0.396180555555556d.ToString(CultureInfo.CurrentCulture));
+                // orabooster-epplus (issue #23): the cell holds a time as a part of a day. As a string it is the double as .NET writes it:
+                // 0.396180555555556 on .NET Framework (15 digits), 0.39618055555555554 since .NET Core 3.0 (the shortest text that reads
+                // back to the same double). The test expected the first; it now checks the number and that the string is that number.
+                Assert.AreEqual(0.396180555555556d, ws.Cells["T20"].GetValue<double>(), 1E-15);
+                Assert.AreEqual(ws.Cells["T20"].GetValue<double>().ToString(CultureInfo.CurrentCulture), ws.Cells["T20"].GetValue<string>());
                 Assert.AreEqual(ws.Cells["T20"].GetValue<int>(), 0);
                 Assert.AreEqual(ws.Cells["T20"].GetValue<int?>(), 0);
-                Assert.AreEqual(ws.Cells["T20"].GetValue<double>(), 0.396180555555556d);
-                Assert.AreEqual(ws.Cells["T20"].GetValue<double?>(), 0.396180555555556d);
+                // orabooster-epplus (issue #23): 9:30:30 as a part of a day is 0.39618055555555554; the test compared it with the
+                // 15 digits .NET Framework wrote into the file. Since .NET Core 3.0 the file holds the whole number.
+                Assert.AreEqual(new TimeSpan(9, 30, 30).TotalDays, ws.Cells["T20"].GetValue<double>(), 1E-15);
+                Assert.AreEqual(new TimeSpan(9, 30, 30).TotalDays, ws.Cells["T20"].GetValue<double?>().Value, 1E-15);
                 Assert.AreEqual(ws.Cells["T20"].GetValue<decimal>(), 0.396180555555556m);
                 Assert.AreEqual(ws.Cells["T20"].GetValue<decimal?>(), 0.396180555555556m);
                 Assert.AreEqual(ws.Cells["T20"].GetValue<bool>(), true);
@@ -192,11 +198,12 @@ namespace EPPlusTest
                 Assert.AreEqual(ws.Cells["T20"].GetValue<TimeSpan?>(), new TimeSpan(693593, 9, 30, 30));
                 Assert.AreEqual(ws.Cells["T20"].Text, "09:30:30");
 
-                Assert.AreEqual(ws.Cells["T24"].GetValue<string>(), 1.39618055555556d.ToString(CultureInfo.CurrentCulture));
+                // orabooster-epplus (issue #23): as for T20 above, 33:30:30 is 1.3961805555555555 days, not the 15 digits of .NET Framework
+                Assert.AreEqual(ws.Cells["T24"].GetValue<double>().ToString(CultureInfo.CurrentCulture), ws.Cells["T24"].GetValue<string>());
                 Assert.AreEqual(ws.Cells["T24"].GetValue<int>(), 1);
                 Assert.AreEqual(ws.Cells["T24"].GetValue<int?>(), 1);
-                Assert.AreEqual(ws.Cells["T24"].GetValue<double>(), 1.39618055555556d);
-                Assert.AreEqual(ws.Cells["T24"].GetValue<double?>(), 1.39618055555556d);
+                Assert.AreEqual(new TimeSpan(33, 30, 30).TotalDays, ws.Cells["T24"].GetValue<double>(), 1E-15);
+                Assert.AreEqual(new TimeSpan(33, 30, 30).TotalDays, ws.Cells["T24"].GetValue<double?>().Value, 1E-15);
                 Assert.AreEqual(ws.Cells["T24"].GetValue<decimal>(), 1.39618055555556m);
                 Assert.AreEqual(ws.Cells["T24"].GetValue<decimal?>(), 1.39618055555556m);
                 Assert.AreEqual(ws.Cells["T24"].GetValue<bool>(), true);
@@ -3015,8 +3022,14 @@ namespace EPPlusTest
             Thread.CurrentThread.CurrentCulture = us;
 #endif
             double usEoMonth = 0d, usEdate = 0d;
+            // orabooster-epplus (issue #23): the culture is set in the thread itself, and what the thread throws is kept for the
+            // test. See the en-GB test below for the reason.
+            Exception failure = null;
             var thread = new Thread(delegate ()
             {
+                try
+                {
+                Thread.CurrentThread.CurrentCulture = us;
                 using (var package = new ExcelPackage())
                 {
                     var ws = package.Workbook.Worksheets.Add("Sheet1");
@@ -3028,9 +3041,12 @@ namespace EPPlusTest
                     usEdate = Convert.ToDouble(ws.Cells[3, 3].Value);
 
                 }
+                }
+                catch (Exception ex) { failure = ex; }
             });
             thread.Start();
             thread.Join();
+            Assert.IsNull(failure, failure == null ? "" : failure.ToString());
             Assert.AreEqual(41654.0, usEoMonth);
             Assert.AreEqual(41670.0, usEdate);
 #if Core
@@ -3052,8 +3068,18 @@ namespace EPPlusTest
             Thread.CurrentThread.CurrentCulture = gb;
 #endif
             double gbEoMonth = 0d, gbEdate = 0d;
+            // orabooster-epplus (issue #23): this test stopped the test host in a run of the whole suite and was left out of it.
+            // On .NET Core a new thread takes DefaultThreadCurrentCulture only when no culture was set on the thread that starts it;
+            // a culture that was set there flows to the new thread. Any earlier test that sets CurrentCulture (and sets it back)
+            // is enough: the thread then ran with the culture of the PC, did not read "15/1/2014" as a date, the formula gave an
+            // error value, Convert.ToDouble threw in the thread, and an exception that leaves a thread ends the process.
+            // The culture is now set in the thread itself, and what the thread throws is kept and fails the test.
+            Exception failure = null;
             var thread = new Thread(delegate ()
             {
+                try
+                {
+                Thread.CurrentThread.CurrentCulture = gb;
                 using (var package = new ExcelPackage())
                 {
                     var ws = package.Workbook.Worksheets.Add("Sheet1");
@@ -3064,9 +3090,12 @@ namespace EPPlusTest
                     gbEoMonth = Convert.ToDouble(ws.Cells[2, 3].Value);
                     gbEdate = Convert.ToDouble(ws.Cells[3, 3].Value);
                 }
+                }
+                catch (Exception ex) { failure = ex; }
             });
             thread.Start();
             thread.Join();
+            Assert.IsNull(failure, failure == null ? "" : failure.ToString());
             Assert.AreEqual(41654.0, gbEoMonth);
             Assert.AreEqual(41670.0, gbEdate);
 #if Core

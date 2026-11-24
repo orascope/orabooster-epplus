@@ -105,7 +105,9 @@ namespace EPPlusTest.Utils
             var decimalSign=System.Globalization.CultureInfo.CurrentCulture.NumberFormat.NumberDecimalSeparator;
             var result = ConvertUtil.GetTypedCellValue<decimal>($"1{decimalSign}4");
 
-            Assert.AreEqual((decimal)1.4, result);
+            // orabooster-epplus (issue #23): 1.4m. The test had (decimal)1.4, which the compiler now folds to
+            // 1.3999999999999999111821580300 (the double 1.4 digit for digit); the text "1.4" as a decimal is 1.4.
+            Assert.AreEqual(1.4m, result);
         }
 
         [TestMethod]
