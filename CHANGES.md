@@ -16,6 +16,18 @@ New features, taken one at a time from the candidate list in #8. They are writte
   - An entry of a loaded file whose address cannot be read is left as it is and does not stop an insert or delete. `Add` takes a range object with several ranges and refuses one of another worksheet; an item cannot be left without a check (remove it instead).
   - `tools/SaveBench/open-in-excel.ps1` (new): opens every workbook of a folder in a hidden Excel and reports the ones that need a repair; used for the check above.
   - Tests: 9 new in `OraBoosterIssuesTests`. Whole suite: 1,166 passed, 10 failed, 214 skipped (the same 10 as before).
+- **#11** Stock charts with volume: `AddChart(name, eChartType.StockVHLC)` and `StockVOHLC` (they threw `NotSupportedException`, #3).
+  In the file such a chart is two charts in one plot area, as Excel writes it: a clustered column chart with the volume on the primary axes and a `c:stockChart` (high-low lines, and up/down bars with an open series) on the secondary axes.
+  - `AddChart` returns the column chart (`ChartType` is `ColumnClustered`); the stock chart is `chart.PlotArea.ChartTypes[1]` and uses the secondary axes.
+  - Series are added in the order Excel uses: the first series added to the returned chart is the volume, the following ones (open,) high, low, close go to the stock chart (`ExcelChartSeries.AddSeries`). A caller that adds its series one after the other needs no special code. `chart.Series` holds the volume series only.
+  - A pivot table as the source is refused with `NotSupportedException` before anything is added to the drawing (a pivot chart can not be combined with another chart type).
+  - `ExcelChart.UpdateStockSeriesCache` also writes the caches of a stock chart that is combined with another chart type (Excel needs them to turn on the high-low lines).
+  - The close marker of a high-low-close chart (a dash) is chosen by the position of the series in its chart, not by its `idx`; the two differ when chart types are combined.
+  - Loading: a stock chart with up/down bars is reported as `StockOHLC` (it was always `StockHLC`), and a loaded stock chart that is combined with another chart type has its chart type (it had 0).
+  - Checked in Excel 16 with `SaveBench issues` and `open-in-excel.ps1` (which now prints the chart type and the chart groups of every chart): the files open without a repair, on a worksheet and on a chart sheet `ChartType` is `xlStockVHLC` (90) / `xlStockVOHLC` (91), the first chart group has the one volume series on the primary axes, the second has the price series on the secondary axes with `HasHiLoLines` on and `HasUpDownBars` on for VOHLC. The same charts made by Excel itself give the same lines, and the exported pictures show the columns, the high-low lines and the up/down bars.
+  - `variety`, `keep` and the issue 2, 3 and 9 samples of `SaveBench` are part by part the same as before.
+  - Found on the way, not fixed here: a loaded chart lists its first chart type twice in `PlotArea.ChartTypes` (#12).
+  - Tests: 4 new, 1 removed (the one that expected the exception). Whole suite: 1,169 passed, 10 failed, 214 skipped (the same 10 as before).
 
 ## 4.5.3.8-ora.2 (2026-11-24, OraScope Co.,Ltd.)
 

@@ -153,21 +153,159 @@ namespace EPPlusTest
             }
         }
 
-        // #3: the volume stock charts are not supported; the check must come before anything is added to the drawing
+        // A sheet with a day column, a volume column and the price columns (open,) high, low, close in rows 2 to 6
+        static ExcelWorksheet StockSheet(ExcelPackage a_package, bool a_open)
+        {
+            var ws = a_package.Workbook.Worksheets.Add("S");
+            string[] heads = a_open ? new[] { "Day", "Volume", "Open", "High", "Low", "Close" } : new[] { "Day", "Volume", "High", "Low", "Close" };
+            for (int c = 0; c < heads.Length; c++) ws.Cells[1, c + 1].Value = heads[c];
+            for (int r = 2; r <= 6; r++)
+            {
+                ws.Cells[r, 1].Value = "D" + r;
+                ws.Cells[r, 2].Value = 1000 * r;
+                double[] v = a_open ? new double[] { 100 + r, 110 + r, 90 + r, 105 + r } : new double[] { 110 + r, 90 + r, 105 + r };
+                for (int c = 0; c < v.Length; c++) ws.Cells[r, c + 3].Value = v[c];
+            }
+            return ws;
+        }
+
+        // #11: a volume stock chart is a column chart (the volume, primary axes) and a stock chart (secondary axes).
+        // Series added one after the other to the chart from AddChart go to the right part.
         [TestMethod]
-        public void Volume_stock_charts_throw_before_adding_a_drawing()
+        public void Volume_stock_charts_are_a_column_chart_and_a_stock_chart_on_the_secondary_axes()
         {
             foreach (var type in new[] { eChartType.StockVHLC, eChartType.StockVOHLC })
             {
+                bool open = type == eChartType.StockVOHLC;
+                int prices = open ? 4 : 3;
+                eChartType stockType = open ? eChartType.StockOHLC : eChartType.StockHLC;
                 using (var p = new ExcelPackage())
                 {
-                    var ws = p.Workbook.Worksheets.Add("S");
-                    Assert.ThrowsException<NotSupportedException>(() => ws.Drawings.AddChart("C1", type), type.ToString());
-                    Assert.AreEqual(0, ws.Drawings.Count, type.ToString());
-                    ws.Cells["A1"].Value = 1;
+                    var ws = StockSheet(p, open);
+                    var chart = ws.Drawings.AddChart("C1", type);
+                    for (int c = 2; c <= prices + 2; c++)
+                    {
+                        var s = chart.Series.Add(ExcelCellBase.GetAddress(2, c, 6, c), "A2:A6");
+                        s.HeaderAddress = ws.Cells[1, c];
+                    }
+                    Assert.AreEqual(1, ws.Drawings.Count, type.ToString());
+                    Assert.AreEqual(eChartType.ColumnClustered, chart.ChartType, type.ToString());
+                    Assert.AreEqual(1, chart.Series.Count, type.ToString());
+                    Assert.AreEqual(2, chart.PlotArea.ChartTypes.Count, type.ToString());
+                    ExcelChart stock = chart.PlotArea.ChartTypes[1];
+                    Assert.AreEqual(stockType, stock.ChartType, type.ToString());
+                    Assert.AreEqual(prices, stock.Series.Count, type.ToString());
+                    Assert.IsTrue(stock.UseSecondaryAxis, type.ToString());
+
+                    XmlElement space = SavedSheet(p, "xl/charts/chart1.xml");
+                    var ns = new XmlNamespaceManager(space.OwnerDocument.NameTable);
+                    ns.AddNamespace("c", "http://schemas.openxmlformats.org/drawingml/2006/chart");
+                    XmlNode plot = space.SelectSingleNode("c:chart/c:plotArea", ns);
+                    string order = string.Join(",", plot.ChildNodes.OfType<XmlElement>().Select(e => e.LocalName));
+                    Assert.AreEqual("layout,barChart,stockChart,catAx,valAx,catAx,valAx", order, type.ToString());
+
+                    // the volume on the first pair of axes, the prices on the second
+                    string[] barAx = plot.SelectNodes("c:barChart/c:axId/@val", ns).OfType<XmlNode>().Select(n => n.Value).ToArray();
+                    string[] stockAx = plot.SelectNodes("c:stockChart/c:axId/@val", ns).OfType<XmlNode>().Select(n => n.Value).ToArray();
+                    string[] axes = plot.SelectNodes("c:catAx/c:axId/@val|c:valAx/c:axId/@val", ns).OfType<XmlNode>().Select(n => n.Value).ToArray();
+                    CollectionAssert.AreEqual(new[] { axes[0], axes[1] }, barAx, type.ToString());
+                    CollectionAssert.AreEquivalent(new[] { axes[2], axes[3] }, stockAx, type.ToString());
+                    Assert.AreEqual(4, axes.Distinct().Count(), type.ToString());
+                    XmlNode secondValAx = plot.SelectNodes("c:valAx", ns)[1];
+                    Assert.AreEqual("max", secondValAx.SelectSingleNode("c:crosses/@val", ns).Value, type.ToString());
+                    Assert.AreEqual("r", secondValAx.SelectSingleNode("c:axPos/@val", ns).Value, type.ToString());
+                    Assert.AreEqual("1", plot.SelectNodes("c:catAx", ns)[1].SelectSingleNode("c:delete/@val", ns).Value, type.ToString());
+
+                    // series: the volume is 0 on the column chart, the prices follow on the stock chart
+                    Assert.AreEqual("0", string.Join(",", plot.SelectNodes("c:barChart/c:ser/c:idx/@val", ns).OfType<XmlNode>().Select(n => n.Value)), type.ToString());
+                    Assert.AreEqual(open ? "1,2,3,4" : "1,2,3", string.Join(",", plot.SelectNodes("c:stockChart/c:ser/c:idx/@val", ns).OfType<XmlNode>().Select(n => n.Value)), type.ToString());
+                    Assert.AreEqual(open ? "1,2,3,4" : "1,2,3", string.Join(",", plot.SelectNodes("c:stockChart/c:ser/c:order/@val", ns).OfType<XmlNode>().Select(n => n.Value)), type.ToString());
+                    Assert.AreEqual("'S'!B2:B6", plot.SelectSingleNode("c:barChart/c:ser/c:val/c:numRef/c:f", ns).InnerText, type.ToString());
+                    Assert.AreEqual("'S'!C2:C6", plot.SelectSingleNode("c:stockChart/c:ser/c:val/c:numRef/c:f", ns).InnerText, type.ToString());
+
+                    Assert.IsNotNull(plot.SelectSingleNode("c:stockChart/c:hiLowLines", ns), type.ToString());
+                    Assert.AreEqual(open, plot.SelectSingleNode("c:stockChart/c:upDownBars", ns) != null, type.ToString());
+                    Assert.IsNull(plot.SelectSingleNode("c:stockChart/c:varyColors", ns), type.ToString());
+                    // the close of a high-low-close chart is a dash: the third series of the stock chart, whatever its idx
+                    string symbols = string.Join(",", plot.SelectNodes("c:stockChart/c:ser/c:marker/c:symbol/@val", ns).OfType<XmlNode>().Select(n => n.Value));
+                    Assert.AreEqual(open ? "none,none,none,none" : "none,none,dash", symbols, type.ToString());
+                    // Excel turns the high-low lines on only when the stock series carry cached values
+                    foreach (XmlNode cache in plot.SelectNodes("c:stockChart/c:ser/c:val/c:numRef/c:numCache", ns)) Assert.AreEqual(5, cache.SelectNodes("c:pt", ns).Count, type.ToString());
+                    Assert.AreEqual(prices, plot.SelectNodes("c:stockChart/c:ser/c:val/c:numRef/c:numCache", ns).Count, type.ToString());
+
                     using (var r = Reload(p))
                     {
-                        Assert.AreEqual(0, r.Workbook.Worksheets["S"].Drawings.Count, type.ToString());
+                        var rc = (ExcelChart)r.Workbook.Worksheets["S"].Drawings[0];
+                        // a loaded chart lists its first chart type twice (as in EPPlusFree 4.5.3.8, issue #12), so the distinct ones are taken
+                        ExcelChart[] types = rc.PlotArea.ChartTypes.Distinct().ToArray();
+                        Assert.AreEqual(2, types.Length, type.ToString());
+                        Assert.AreEqual(1, rc.Series.Count, type.ToString());
+                        Assert.AreEqual(stockType, types[1].ChartType, type.ToString());
+                        Assert.AreEqual(prices, types[1].Series.Count, type.ToString());
+
+                        // saved again after a load: still one column chart and one stock chart with the same series
+                        XmlNode plot2 = SavedSheet(r, "xl/charts/chart1.xml").SelectSingleNode("c:chart/c:plotArea", ns);
+                        Assert.AreEqual(order, string.Join(",", plot2.ChildNodes.OfType<XmlElement>().Select(e => e.LocalName)), type.ToString());
+                        Assert.AreEqual(prices, plot2.SelectNodes("c:stockChart/c:ser", ns).Count, type.ToString());
+                        Assert.AreEqual(prices, plot2.SelectNodes("c:stockChart/c:ser/c:val/c:numRef/c:numCache", ns).Count, type.ToString());
+                    }
+                }
+            }
+        }
+
+        // #11: a pivot chart can not be combined with another chart type; that is refused before anything is added to the drawing
+        [TestMethod]
+        public void Volume_stock_chart_as_a_pivot_chart_is_refused_before_adding_a_drawing()
+        {
+            using (var p = new ExcelPackage())
+            {
+                var ws = StockSheet(p, false);
+                var pivot = ws.PivotTables.Add(ws.Cells["H1"], ws.Cells["A1:E6"], "Pivot1");
+                Assert.ThrowsException<NotSupportedException>(() => ws.Drawings.AddChart("C1", eChartType.StockVHLC, pivot));
+                Assert.AreEqual(0, ws.Drawings.Count);
+                using (var r = Reload(p))
+                {
+                    Assert.AreEqual(0, r.Workbook.Worksheets["S"].Drawings.Count);
+                }
+            }
+        }
+
+        // #11: the same on a chart sheet, with the series given as ranges of another sheet
+        [TestMethod]
+        public void Volume_stock_chart_on_a_chart_sheet()
+        {
+            using (var p = new ExcelPackage())
+            {
+                var ws = StockSheet(p, true);
+                ExcelChart chart = p.Workbook.Worksheets.AddChart("CS", eChartType.StockVOHLC).Chart;
+                for (int c = 2; c <= 6; c++) chart.Series.Add(ws.Cells[2, c, 6, c], ws.Cells["A2:A6"]);
+                Assert.AreEqual(1, chart.Series.Count);
+                Assert.AreEqual(4, chart.PlotArea.ChartTypes[1].Series.Count);
+
+                XmlElement space = SavedSheet(p, "xl/charts/chart1.xml");
+                var ns = new XmlNamespaceManager(space.OwnerDocument.NameTable);
+                ns.AddNamespace("c", "http://schemas.openxmlformats.org/drawingml/2006/chart");
+                Assert.AreEqual(1, space.SelectNodes("c:chart/c:plotArea/c:barChart/c:ser", ns).Count);
+                Assert.AreEqual(4, space.SelectNodes("c:chart/c:plotArea/c:stockChart/c:ser", ns).Count);
+                // the caches come from the sheet the series refer to
+                Assert.AreEqual("102", space.SelectSingleNode("c:chart/c:plotArea/c:stockChart/c:ser/c:val/c:numRef/c:numCache/c:pt/c:v", ns).InnerText);
+            }
+        }
+
+        // #11: a loaded stock chart with up/down bars is an open-high-low-close chart (it was reported as high-low-close)
+        [TestMethod]
+        public void Loaded_stock_chart_with_an_open_series_is_reported_as_StockOHLC()
+        {
+            foreach (var type in new[] { eChartType.StockHLC, eChartType.StockOHLC })
+            {
+                using (var p = new ExcelPackage())
+                {
+                    var ws = StockSheet(p, type == eChartType.StockOHLC);
+                    var chart = ws.Drawings.AddChart("C1", type);
+                    for (int c = 3; c <= (type == eChartType.StockOHLC ? 6 : 5); c++) chart.Series.Add(ExcelCellBase.GetAddress(2, c, 6, c), "A2:A6");
+                    using (var r = Reload(p))
+                    {
+                        Assert.AreEqual(type, ((ExcelChart)r.Workbook.Worksheets["S"].Drawings[0]).ChartType);
                     }
                 }
             }

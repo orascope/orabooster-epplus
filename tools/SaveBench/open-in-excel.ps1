@@ -1,6 +1,7 @@
 # Opens every xlsx of a folder in Excel (hidden, through COM) and reports whether it opens without a repair.
 #   powershell -ExecutionPolicy Bypass -File open-in-excel.ps1 -Dir <folder made by "SaveBench issues">
 # With alerts off, a file that Excel would have to repair fails to open, so "opened" means no repair.
+# For every chart (on the first sheet and on chart sheets) it prints the chart type Excel gives it and its chart groups.
 # For issue9_ignored_errors.xlsx it also prints, per cell, whether the error check fails and whether it is ignored.
 # Only the Excel process started here is closed; an Excel the user has open is left alone.
 param([Parameter(Mandatory = $true)][string]$Dir)
@@ -16,6 +17,23 @@ try {
             $wb = $xl.Workbooks.Open($f.FullName)
             $ws = $wb.Worksheets.Item(1)
             "{0}: opened (tables {1}, charts {2}, comments {3})" -f $f.Name, $ws.ListObjects.Count, $ws.ChartObjects().Count, $ws.Comments.Count
+            # Every chart: the type Excel gives it (XlChartType: 88-91 are the stock charts, 90 and 91 the ones with volume)
+            # and, per chart group, the number of series and whether the high-low lines and up/down bars are on.
+            $charts = @()
+            for ($i = 1; $i -le $ws.ChartObjects().Count; $i++) { $charts += , @("chart $i", $ws.ChartObjects($i).Chart) }
+            for ($i = 1; $i -le $wb.Charts.Count; $i++) { $charts += , @("chart sheet $($wb.Charts.Item($i).Name)", $wb.Charts.Item($i)) }
+            foreach ($entry in $charts) {
+                $ch = $entry[1]
+                $groups = @()
+                for ($g = 1; $g -le $ch.ChartGroups().Count; $g++) {
+                    $cg = $ch.ChartGroups($g)
+                    $hl = '-'; $ud = '-'
+                    try { $hl = $cg.HasHiLoLines } catch { }
+                    try { $ud = $cg.HasUpDownBars } catch { }
+                    $groups += "group ${g}: axes $($cg.AxisGroup), series $($cg.SeriesCollection().Count), hiLoLines $hl, upDownBars $ud"
+                }
+                "  {0}: type {1}, series {2}; {3}" -f $entry[0], $ch.ChartType, $ch.SeriesCollection().Count, ($groups -join '; ')
+            }
             if ($f.Name -eq 'issue9_ignored_errors.xlsx') {
                 # XlErrorChecks: 1 = xlEvaluateToError, 3 = xlNumberAsText
                 $cells = @(@('A2', 3), @('A21', 3), @('B2', 3), @('B21', 3), @('C2', 3), @('D2', 1), @('D21', 1), @('E2', 1), @('E21', 1), @('A2', 1), @('D2', 3))
