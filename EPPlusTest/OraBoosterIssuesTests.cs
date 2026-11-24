@@ -689,6 +689,19 @@ namespace EPPlusTest
                 Assert.AreEqual("<a:noFill xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" />", space.SelectNodes("//c:ser", ns)[0].SelectSingleNode("c:spPr", ns).InnerXml);
                 Assert.AreEqual("00B050", space.SelectNodes("//c:ser", ns)[1].SelectSingleNode("c:spPr/a:solidFill/a:srgbClr/@val", ns).Value);
             }
+
+            // the line colour of a scatter series without lines: the same line, through the property of the scatter series
+            using (var p = new ExcelPackage())
+            {
+                var chart = FormatChart(p, eChartType.XYScatter);
+                ((ExcelScatterChartSerie)chart.Series[0]).LineColor = s_blue;
+                ((ExcelScatterChartSerie)chart.Series[0]).MarkerColor = s_red;
+                XmlElement space = SavedSheet(p, "xl/charts/chart1.xml");
+                var ns = ChartNs(space);
+                AssertSeriesAreValid(space, "scatter line colour");
+                Assert.AreEqual("solidFill", string.Join(",", ChildNames((XmlElement)space.SelectNodes("//c:ser", ns)[0].SelectSingleNode("c:spPr/a:ln", ns))));
+                Assert.AreEqual("noFill", string.Join(",", ChildNames((XmlElement)space.SelectNodes("//c:ser", ns)[1].SelectSingleNode("c:spPr/a:ln", ns))), "the other series keeps its line without a fill");
+            }
         }
 
         // #19: what a series could have before (markers, line colour, explosion, data labels, trendlines) is written in the order of the schema too

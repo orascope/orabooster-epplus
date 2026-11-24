@@ -182,6 +182,8 @@ static class Issues
                     if (type == eChartType.XYScatter || type == eChartType.Bubble) first.AddErrorBars(eErrorBarType.Plus, eErrorValueType.Percentage, 10, true);
                     chart.Series[1].AddErrorBars(eErrorBarType.Minus, eErrorValueType.StandardDeviation, 2);
                 }
+                // the second series of the scatter chart without lines gets a line through the property of the scatter series
+                if (type == eChartType.XYScatter) ((ExcelScatterChartSerie)chart.Series[1]).LineColor = red;
                 // the things a series could have before, to see that they still end up in a file Excel opens
                 if (type == eChartType.ColumnClustered || type == eChartType.Line) first.TrendLines.Add(eTrendLine.Linear);
                 if (type == eChartType.ColumnClustered) ((ExcelBarChartSerie)first).DataLabel.ShowValue = true;
