@@ -1228,6 +1228,12 @@ namespace OfficeOpenXml
                 }
                 else if (nf.DataType == ExcelNumberFormatXml.eFormatType.DateTime)
                 {
+                    // orabooster-epplus (issue #15): a number that is not a date. DateTime.FromOADate throws for it, and one such
+                    // cell stopped AutoFitColumns for the whole range and made Text throw. Excel fills the cell with # signs.
+                    if (double.IsNaN(d) || d <= -657435.0 || d >= 2958466.0)
+                    {
+                        return "########";
+                    }
                     var date = DateTime.FromOADate(d);
                     return GetDateText(date, format, nf);
                 }

@@ -236,8 +236,7 @@ namespace EPPlusTest
                     using (var r = Reload(p))
                     {
                         var rc = (ExcelChart)r.Workbook.Worksheets["S"].Drawings[0];
-                        // a loaded chart lists its first chart type twice (as in EPPlusFree 4.5.3.8, issue #12), so the distinct ones are taken
-                        ExcelChart[] types = rc.PlotArea.ChartTypes.Distinct().ToArray();
+                        ExcelChart[] types = rc.PlotArea.ChartTypes.ToArray(); // each chart type once (issue #12)
                         Assert.AreEqual(2, types.Length, type.ToString());
                         Assert.AreEqual(1, rc.Series.Count, type.ToString());
                         Assert.AreEqual(stockType, types[1].ChartType, type.ToString());
@@ -307,7 +306,7 @@ namespace EPPlusTest
                 {
                     foreach (string name in new[] { "S", "Copy" })
                     {
-                        ExcelChart[] types = ((ExcelChart)r.Workbook.Worksheets[name].Drawings[0]).PlotArea.ChartTypes.Distinct().ToArray();
+                        ExcelChart[] types = ((ExcelChart)r.Workbook.Worksheets[name].Drawings[0]).PlotArea.ChartTypes.ToArray();
                         Assert.AreEqual(2, types.Length, name);
                         Assert.AreEqual(eChartType.ColumnClustered, types[0].ChartType, name);
                         Assert.AreEqual(1, types[0].Series.Count, name);
@@ -585,6 +584,89 @@ namespace EPPlusTest
                     Assert.AreEqual("A1:A9", r.Workbook.Worksheets["S"].IgnoredErrors[0].Address);
                     Assert.AreEqual(2, r.Workbook.Worksheets["Copy"].IgnoredErrors.Count);
                     Assert.AreEqual("B1:B9", r.Workbook.Worksheets["Copy"].IgnoredErrors[0].Address);
+                }
+            }
+        }
+
+        // #12: a loaded chart has each of its chart types once in PlotArea.ChartTypes, and a series added to a loaded chart
+        // gets the next number without giving the series that were there new ones
+        [TestMethod]
+        public void Loaded_chart_lists_each_chart_type_once()
+        {
+            using (var p = new ExcelPackage())
+            {
+                var ws = p.Workbook.Worksheets.Add("S");
+                for (int r = 1; r <= 6; r++) for (int c = 1; c <= 6; c++) ws.Cells[r, c].Value = r == 1 ? (object)("H" + c) : r * c;
+                var single = ws.Drawings.AddChart("Single", eChartType.ColumnClustered);
+                single.Series.Add("B2:B6", "A2:A6");
+                single.Series.Add("C2:C6", "A2:A6");
+                var combined = ws.Drawings.AddChart("Combined", eChartType.ColumnClustered);
+                combined.Series.Add("B2:B6", "A2:A6");
+                combined.Series.Add("C2:C6", "A2:A6");
+                var line = combined.PlotArea.ChartTypes.Add(eChartType.Line);
+                line.Series.Add("D2:D6", "A2:A6");
+                Assert.AreEqual(1, single.PlotArea.ChartTypes.Count);
+                Assert.AreEqual(2, combined.PlotArea.ChartTypes.Count);
+
+                using (var r = Reload(p))
+                {
+                    var rs = (ExcelChart)r.Workbook.Worksheets["S"].Drawings["Single"];
+                    var rc = (ExcelChart)r.Workbook.Worksheets["S"].Drawings["Combined"];
+                    Assert.AreEqual(1, rs.PlotArea.ChartTypes.Count, "one chart type");
+                    Assert.AreSame(rs, rs.PlotArea.ChartTypes[0]);
+                    Assert.AreEqual(2, rc.PlotArea.ChartTypes.Count, "two chart types");
+                    Assert.AreSame(rc, rc.PlotArea.ChartTypes[0]);
+                    Assert.AreEqual(eChartType.Line, rc.PlotArea.ChartTypes[1].ChartType);
+                    Assert.AreEqual(1, rc.PlotArea.ChartTypes[1].Series.Count);
+
+                    // one more series on each: the numbers go on, the ones that were there keep theirs
+                    rs.Series.Add("D2:D6", "A2:A6");
+                    rc.Series.Add("E2:E6", "A2:A6");
+                    rc.PlotArea.ChartTypes[1].Series.Add("F2:F6", "A2:A6");
+                    XmlElement one = SavedSheet(r, "xl/charts/chart1.xml");
+                    var ns = new XmlNamespaceManager(one.OwnerDocument.NameTable);
+                    ns.AddNamespace("c", "http://schemas.openxmlformats.org/drawingml/2006/chart");
+                    Assert.AreEqual("0,1,2", string.Join(",", one.SelectNodes("//c:ser/c:idx/@val", ns).OfType<XmlNode>().Select(n => n.Value)));
+                    Assert.AreEqual("0,1,2", string.Join(",", one.SelectNodes("//c:ser/c:order/@val", ns).OfType<XmlNode>().Select(n => n.Value)));
+                    Assert.AreEqual("'S'!B2:B6|'S'!C2:C6|'S'!D2:D6", string.Join("|", one.SelectNodes("//c:ser/c:val/c:numRef/c:f", ns).OfType<XmlNode>().Select(n => n.InnerText)));
+                    XmlElement two = SavedSheet(r, "xl/charts/chart2.xml");
+                    string[] ids = two.SelectNodes("//c:ser/c:idx/@val", ns).OfType<XmlNode>().Select(n => n.Value).ToArray();
+                    Assert.AreEqual(5, ids.Length);
+                    CollectionAssert.AreEquivalent(new[] { "0", "1", "2", "3", "4" }, ids, string.Join(",", ids));
+                    Assert.AreEqual(3, two.SelectNodes("//c:barChart/c:ser", ns).Count);
+                    Assert.AreEqual(2, two.SelectNodes("//c:lineChart/c:ser", ns).Count);
+                }
+            }
+        }
+
+        // #15: a number that is not a date in a cell with a date format shows as # signs, as in Excel. It made Text and
+        // AutoFitColumns throw, and one such cell stopped the autofit of the whole range.
+        [TestMethod]
+        public void Number_that_is_not_a_date_in_a_date_format_does_not_throw()
+        {
+            using (var p = new ExcelPackage())
+            {
+                var ws = p.Workbook.Worksheets.Add("S");
+                ws.Cells["A1"].Value = -700000;       // before the first date .NET has
+                ws.Cells["A2"].Value = 3000000;       // after the last date
+                ws.Cells["A3"].Value = double.NaN;
+                ws.Cells["A4"].Value = 46000;         // a date
+                ws.Cells["A5"].Value = -1.5;          // before 1900: Excel shows # signs, the library shows the date as before
+                ws.Cells["B1"].Value = "a text that is longer than the dates";
+                ws.Cells["A1:A5"].Style.Numberformat.Format = "yyyy-mm-dd";
+                Assert.AreEqual("########", ws.Cells["A1"].Text);
+                Assert.AreEqual("########", ws.Cells["A2"].Text);
+                Assert.AreEqual("########", ws.Cells["A3"].Text);
+                Assert.AreEqual("2025-12-09", ws.Cells["A4"].Text);
+                Assert.AreEqual("1899-12-29", ws.Cells["A5"].Text);
+
+                ws.Cells["A1:B5"].AutoFitColumns(0);
+                Assert.IsTrue(ws.Column(1).Width > 8, ws.Column(1).Width.ToString());
+                Assert.IsTrue(ws.Column(2).Width > ws.Column(1).Width, "the other column was fitted too");
+                using (var r = Reload(p))
+                {
+                    Assert.AreEqual(-700000d, Convert.ToDouble(r.Workbook.Worksheets["S"].Cells["A1"].Value));
+                    Assert.AreEqual("########", r.Workbook.Worksheets["S"].Cells["A2"].Text);
                 }
             }
         }

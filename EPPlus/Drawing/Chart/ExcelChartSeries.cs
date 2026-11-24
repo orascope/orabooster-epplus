@@ -313,9 +313,12 @@ namespace OfficeOpenXml.Drawing.Chart
                {
                    if (newID>0)
                    {
+                       // orabooster-epplus (issue #12): the series of the chart types after this one move up by one. newID is the
+                       // number of series up to and with the new one, so the first of them gets newID itself; "++newID" left
+                       // that number out, and the next series added to the last chart type got a number that was in use.
                        foreach (ExcelChartSerie serie in chart.Series)
                        {
-                           serie.SetID((++newID).ToString());
+                           serie.SetID((newID++).ToString());
                        }
                    }
                    else
