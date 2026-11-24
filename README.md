@@ -38,6 +38,7 @@ Full list with file names: [CHANGES.md](CHANGES.md). Every change is also marked
 |---|---|
 | 4.5.3.8-ora.3 (not released yet) | Ignored errors: `ws.IgnoredErrors.Add("A2:A100", eErrorChecks.NumberStoredAsText)` hides the green error-check triangles on a range (#9) |
 | | Stock charts with volume: `AddChart(name, eChartType.StockVHLC)` and `StockVOHLC`; add the series volume first, then (open,) high, low, close (#11) |
+| | `AutoFitColumns` 3 to 7 times faster, with the same widths (#14) |
 | 4.5.3.8-ora.2 | Deleting a table no longer gives the next table id 0 or an id in use (#2) |
 | | `Column3D`, `StockHLC` and `StockOHLC` charts; the volume stock charts throw `NotSupportedException` before anything is added (#3) |
 | | Cell addresses without extra strings (#4); loading with `System.IO.Compression` (#5); EPPlusTest runs on .NET 10 (#6) |
@@ -59,6 +60,8 @@ Loading 50,000 rows x 15 columns: 0.68-1.04 s -> 0.60-0.78 s (ora.2).
 
 **Many values.** `ExcelWorksheet.SetValue(row, col, value)` puts values about 2.5x faster than `Cells[row, col].Value = value` (the indexer sets up a range object for every call): 100,000 x 15 values in about 80 ms instead of 200 ms (`tools/SaveBench fill`).
 
+**AutoFit.** `AutoFitColumns` over 50,000 rows x 15 columns: 3.2-5.8 s -> 0.46-1.47 s (ora.3, `tools/SaveBench autofit`, both builds run one after the other on a busy PC), with the same widths. Against Excel's own autofit the widths are 6 % wider on average and up to 2.6 % narrower for some long texts (`SaveBench autofitsample`, then `autofit-in-excel.ps1`); widen the columns after the call if a long text must not be cut.
+
 Most of the remaining save time is zlib. `ExcelPackage.Compression = CompressionLevel.BestSpeed` saves the same workbook in about 0.40-0.45 s with a file about 1.8x larger.
 
 ## Build
@@ -75,12 +78,13 @@ Tests (EPPlusTest, MSTest, `net10.0-windows`):
 dotnet test EPPlusTest/EPPlusTest.Core.csproj -c Release --filter "FullyQualifiedName!=EPPlusTest.WorkSheetTest.DateFunctionsWorkWithDifferentCultureDateFormats_GB"
 ```
 
-1,170 passed, 10 failed, 214 skipped. The 10 failures and the excluded test (it crashes the test host) are the same on EPPlusFree 4.5.3.8; `OraBoosterIssuesTests` covers the fixes and the new features in this fork. Some old tests still write files to `C:\temp`.
+1,172 passed, 10 failed, 214 skipped. The 10 failures and the excluded test (it crashes the test host) are the same on EPPlusFree 4.5.3.8; `OraBoosterIssuesTests` covers the fixes and the new features in this fork. Some old tests still write files to `C:\temp`.
 
 Tools:
 - `tools/SaveBench`: `SaveBench [rows] [cols] [runs]` times each stage of a save. `SaveBench variety <path>`, `SaveBench keep <rows> <cols> <path>` and `SaveBench issues <dir>` write sample workbooks; `SaveBench fill` and `SaveBench load <xlsx>` time putting values and loading. Build it with `-p:UsePackage=true` to run the same code against the EPPlusFree 4.5.3.8 package.
 - `tools/SaveBench/compare-xlsx.ps1 -A a.xlsx -B b.xlsx`: compares two workbooks part by part (entry names and uncompressed bytes).
 - `tools/SaveBench/open-in-excel.ps1 -Dir <folder>`: opens every workbook of a folder in a hidden Excel and reports the ones that need a repair (for the folder of `SaveBench issues`).
+- `SaveBench autofit [rows] [cols] [runs]` times `AutoFitColumns`; `SaveBench autofitrandom <path> <seed>` writes a workbook of random cells to compare two builds with `compare-xlsx.ps1`; `SaveBench autofitsample <path>` and `tools/SaveBench/autofit-in-excel.ps1 -Path <xlsx>` compare the widths with Excel's own autofit.
 
 ## Source of the OraBooster binaries
 

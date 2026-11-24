@@ -30,6 +30,17 @@ New features, taken one at a time from the candidate list in #8. They are writte
   - A number of series that does not fit the chart type does not break the file: all four stock chart types with 0 to 6 series (28 workbooks) open in Excel without a repair. Excel just draws what it can.
   - After a load the series are added to the chart they are added to: the routing of the series is set up only by `AddChart`. A copy of the worksheet has the whole chart.
   - Tests: 5 new, 1 removed (the one that expected the exception). Whole suite: 1,170 passed, 10 failed, 214 skipped (the same 10 as before).
+- **#14** `ExcelRangeBase.AutoFitColumns` is 3 to 7 times faster and gives every column exactly the width it gave before.
+  - The cells are read from the cell store by row and column. The loop used `foreach (var cell in this)`, which makes a range object and an address string for every cell, and `cell.Style.WrapText`, which makes a style object to read one flag.
+  - What depends only on the style (font, indent, rotation, wrap, number format) is looked up once per style. The number format was searched in the list of formats for every cell.
+  - A text that was measured with the same font is not measured again (up to 100,000 texts of at most 256 characters per font and call).
+  - In a text of printable ASCII the digits count as one character, so a column of numbers or dates is measured a few times, not once per cell. This is used only for a font that passes a check: every digit alone, and before and after every printable ASCII character, measures the same as `0` in its place (about 3,800 measurements, made once 1,000 texts with digits were measured, so a small range does not pay for it). A font with digits of several widths (Georgia) fails the check and is measured as before.
+  - Measured with `SaveBench autofit` on the development PC while it was busy with other work, the two builds run one after the other, three rounds: 50,000 rows x 15 columns 3.2-5.8 s -> 0.46-1.47 s; 1,000 rows 83-200 ms -> 24-119 ms; 10 rows 2 ms -> 1 ms.
+  - Same widths: `SaveBench variety`, `keep`, `autofitsample`, the issue samples and twelve `SaveBench autofitrandom` workbooks (three sheets of 24 columns and 1,500 to 2,500 rows each, ten fonts, number and date formats, indents, rotated, wrapped and merged cells, a hidden column, tables and filters, a width limit, a range of several addresses), written by the build before and by this one, are part by part the same.
+  - Not changed, measured for the record: against Excel's own autofit of the same cells (`SaveBench autofitsample`, then `autofit-in-excel.ps1`; Excel 16 at 125 % display scale) the widths are 6 % wider on average, and 4 of 18 columns are narrower, by up to 2.6 % (one character in 40). Excel measures with fractional glyph widths at the display scale of the PC; neither GDI+ (used here) nor GDI at 96, 120 or 144 dpi gives its numbers, so no model of it was added. A caller that must not cut a long text can widen the columns after the call (3 % covers the sample).
+  - Found on the way, not fixed here: `AutoFitColumns` throws when a cell with a date format holds a number that is not a date (#15).
+  - `tools/SaveBench`: `autofit`, `autofitsample`, `autofitrandom` (new `AutoFitBench.cs`) and `autofit-in-excel.ps1`.
+  - Tests: 2 new. Whole suite: 1,172 passed, 10 failed, 214 skipped (the same 10 as before).
 
 ## 4.5.3.8-ora.2 (2026-11-24, OraScope Co.,Ltd.)
 

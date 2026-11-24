@@ -589,6 +589,93 @@ namespace EPPlusTest
             }
         }
 
+        // #14: AutoFitColumns keeps what it measured and counts digits as one character when the font allows it.
+        // The width of a column must still be exactly the width of its widest cell measured on its own.
+        [TestMethod]
+        public void AutoFit_of_a_range_gives_each_column_its_widest_cell_measured_alone()
+        {
+            // Calibri has digits of one width; Georgia has digits of several widths, so its digits can not count as one
+            foreach (string font in new[] { "Calibri", "Georgia", "Consolas" })
+            {
+                using (var p = new ExcelPackage())
+                {
+                    var ws = p.Workbook.Worksheets.Add("S");
+                    const int rows = 1300, cols = 7;
+                    var rnd = new Random(14);
+                    for (int r = 1; r <= rows; r++)
+                    {
+                        ws.Cells[r, 1].Value = rnd.Next(100000000);
+                        ws.Cells[r, 2].Value = Math.Round(rnd.NextDouble() * 1000000, 3);
+                        ws.Cells[r, 3].Value = new DateTime(2020, 1, 1).AddSeconds(rnd.Next(200000000));
+                        ws.Cells[r, 4].Value = "id " + rnd.Next(500) + "." + rnd.Next(10) + ":" + rnd.Next(60) + "-" + rnd.Next(9) + "," + rnd.Next(99) + " (" + rnd.Next(7) + "/" + rnd.Next(7) + ")";
+                        ws.Cells[r, 5].Value = "세션 " + rnd.Next(100000) + " 대기";
+                        ws.Cells[r, 6].Value = "SQL_" + rnd.Next().ToString("X8");
+                        ws.Cells[r, 7].Value = rnd.Next(3) == 0 ? "17" + rnd.Next(100) : "name " + rnd.Next(40);
+                    }
+                    ws.Cells[1, 1, rows, cols].Style.Font.Name = font;
+                    ws.Cells[1, 2, rows, 2].Style.Numberformat.Format = "#,##0.000";
+                    ws.Cells[1, 3, rows, 3].Style.Numberformat.Format = "yyyy-mm-dd hh:mm:ss";
+                    ws.Cells[1, 7, rows, 7].Style.Font.Bold = true;
+
+                    // one row at a time: so few texts that nothing is taken from another cell
+                    var expected = new double[cols];
+                    for (int r = 1; r <= rows; r++)
+                    {
+                        ws.Cells[r, 1, r, cols].AutoFitColumns(0);
+                        for (int c = 0; c < cols; c++) expected[c] = Math.Max(expected[c], ws.Column(c + 1).Width);
+                    }
+
+                    ws.Cells[1, 1, rows, cols].AutoFitColumns(0);
+                    for (int c = 0; c < cols; c++)
+                    {
+                        Assert.IsTrue(expected[c] > 1, font + " column " + (c + 1));
+                        Assert.AreEqual(expected[c], ws.Column(c + 1).Width, font + " column " + (c + 1));
+                    }
+                }
+            }
+        }
+
+        // #14: the rules of AutoFitColumns that the faster loop has to keep
+        [TestMethod]
+        public void AutoFit_keeps_its_rules_for_hidden_wrapped_merged_filter_and_limit()
+        {
+            const string text = "a fairly long text that sets the width of its column";
+            using (var p = new ExcelPackage())
+            {
+                var plain = p.Workbook.Worksheets.Add("Plain");
+                plain.Cells["A1"].Value = text;
+                plain.Cells["A1"].AutoFitColumns(0);
+                double width = plain.Column(1).Width;
+                Assert.IsTrue(width > 30, width.ToString());
+
+                var ws = p.Workbook.Worksheets.Add("S");
+                for (int c = 1; c <= 7; c++) ws.Cells[1, c].Value = text;
+                ws.Cells["A2"].Value = "x";
+                ws.Column(2).Width = 3; ws.Column(2).Hidden = true;      // B: hidden
+                ws.Cells["C1"].Style.WrapText = true;                     // C: wrapped
+                ws.Cells["D1:E1"].Merge = true;                           // D, E: merged
+                ws.Cells["F1:F3"].AutoFilter = true;                      // F: filter button
+                ws.Cells["A1:F3"].AutoFitColumns(0);
+                Assert.AreEqual(width, ws.Column(1).Width, "plain");
+                Assert.IsTrue(ws.Column(2).Hidden, "hidden stays hidden");
+                Assert.AreEqual(0d, ws.Column(2).Width, "hidden gets the minimum width and is not widened");
+                Assert.IsTrue(ws.Column(3).Width < width / 2, "wrapped: " + ws.Column(3).Width);
+                Assert.IsTrue(ws.Column(4).Width < width / 2, "merged: " + ws.Column(4).Width);
+                Assert.AreEqual(width + 2.25, ws.Column(6).Width, "filter button");
+                Assert.AreEqual(9.140625, ws.Column(7).Width, 0.5, "outside the range");
+
+                ws.Cells["A1:A2"].AutoFitColumns(2, 12);
+                Assert.AreEqual(12d, ws.Column(1).Width, "limit");
+
+                // a range of several addresses, and a column that has no cell in it
+                var multi = p.Workbook.Worksheets.Add("Multi");
+                multi.Cells["A1"].Value = text; multi.Cells["C1"].Value = "short"; multi.Cells["E1"].Value = text;
+                multi.Cells["A1:A5,E1:E5"].AutoFitColumns(0);
+                Assert.AreEqual(width, multi.Column(1).Width, "first address");
+                Assert.AreEqual(width, multi.Column(5).Width, "second address");
+            }
+        }
+
         // #9: the element is placed by the elements before it, so later elements that the library does not know do not matter
         [TestMethod]
         public void Ignored_errors_come_before_later_elements_the_library_does_not_know()
