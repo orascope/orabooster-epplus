@@ -3013,6 +3013,10 @@ namespace OfficeOpenXml
                                 c.UpdateStockSeriesCache(); // orabooster-epplus: stock charts only
                                 c.ChartXml.Save(c.Part.GetStream(FileMode.Create, FileAccess.Write));
                             }
+                            else if (d is ExcelChartEx)
+                            {
+                                ((ExcelChartEx)d).Save(); // orabooster-epplus: the chart types of Excel 2016 (issue #21)
+                            }
                         }
                         Packaging.ZipPackagePart partPack = Drawings.Part;
                         Drawings.DrawingXml.Save(partPack.GetStream(FileMode.Create, FileAccess.Write));

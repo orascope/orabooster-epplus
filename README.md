@@ -41,6 +41,7 @@ Full list with file names: [CHANGES.md](CHANGES.md). Every change is also marked
 | | `AutoFitColumns` 3 to 7 times faster, with the same widths (#14) |
 | | Filters and sort of an autofilter: `ws.AutoFilter.ShowValues(0, "alpha")`, `table.AutoFilter.ShowWhere(1, eFilterOperator.GreaterThan, 5)`, `.Sort(1, true)`; the rows that do not pass are hidden when the package is saved (#17) |
 | | Chart series: `serie.Fill` / `serie.Border` no longer make a file Excel does not open on scatter and stock charts, and are written in the order of the schema; `serie.DataPoints.Add(2).Fill.Color` for one point; `serie.AddErrorBars(...)` (#19) |
+| | The chart types of Excel 2016: `ws.Drawings.AddExtendedChart("name", eChartExType.Waterfall)` and `Treemap`, `Sunburst`, `Histogram`, `Pareto`, `BoxWhisker`, `Funnel`, then `chart.Series.Add("B2:B20", "A2:A20")` (#21) |
 | 4.5.3.8-ora.2 | Deleting a table no longer gives the next table id 0 or an id in use (#2) |
 | | `Column3D`, `StockHLC` and `StockOHLC` charts; the volume stock charts throw `NotSupportedException` before anything is added (#3) |
 | | Cell addresses without extra strings (#4); loading with `System.IO.Compression` (#5); EPPlusTest runs on .NET 10 (#6) |
@@ -80,7 +81,7 @@ Tests (EPPlusTest, MSTest, `net10.0-windows`):
 dotnet test EPPlusTest/EPPlusTest.Core.csproj -c Release --filter "FullyQualifiedName!=EPPlusTest.WorkSheetTest.DateFunctionsWorkWithDifferentCultureDateFormats_GB"
 ```
 
-1,182 passed, 10 failed, 214 skipped. The 10 failures and the excluded test (it crashes the test host) are the same on EPPlusFree 4.5.3.8; `OraBoosterIssuesTests` covers the fixes and the new features in this fork. Some old tests still write files to `C:\temp`.
+1,186 passed, 10 failed, 214 skipped. The 10 failures and the excluded test (it crashes the test host) are the same on EPPlusFree 4.5.3.8; `OraBoosterIssuesTests` covers the fixes and the new features in this fork. Some old tests still write files to `C:\temp`.
 
 Tools:
 - `tools/SaveBench`: `SaveBench [rows] [cols] [runs]` times each stage of a save. `SaveBench variety <path>`, `SaveBench keep <rows> <cols> <path>` and `SaveBench issues <dir>` write sample workbooks; `SaveBench fill` and `SaveBench load <xlsx>` time putting values and loading. Build it with `-p:UsePackage=true` to run the same code against the EPPlusFree 4.5.3.8 package.

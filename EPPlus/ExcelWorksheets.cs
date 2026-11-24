@@ -661,6 +661,43 @@ namespace OfficeOpenXml
 
             e.SetAttribute("id", ExcelPackage.schemaRelationships, newVmlRel.Id);
         }
+        // orabooster-epplus (issue #21): the charts of Excel 2016 of a copied worksheet. The drawing of the copy still points at the
+        // relationships of the original; each chart part is copied with the parts it refers to (its style and its colours), and the
+        // drawing gets the id of the new relationship. This works on the XML and the parts, so it also copies such a chart of a
+        // loaded workbook. Without it the copy had a relationship id that does not exist, and Excel did not open the workbook.
+        private void CopyChartExParts(ExcelWorksheet Copy, XmlDocument drawXml, Packaging.ZipPackagePart part, Uri uriDraw)
+        {
+            var ns = new XmlNamespaceManager(drawXml.NameTable);
+            ns.AddNamespace("cx", "http://schemas.microsoft.com/office/drawing/2014/chartex");
+            ns.AddNamespace("r", ExcelPackage.schemaRelationships);
+            foreach (XmlAttribute relAtt in drawXml.SelectNodes("//cx:chart/@r:id", ns))
+            {
+                var sourceRel = Copy.Drawings.Part.GetRelationship(relAtt.Value);
+                var sourceUri = UriHelper.ResolvePartUri(Copy.Drawings.UriDrawing, sourceRel.TargetUri);
+                var sourcePart = _pck.Package.GetPart(sourceUri);
+                var chartUri = XmlHelper.GetNewUri(_pck.Package, "/xl/charts/chartEx{0}.xml");
+                var chartPart = CopyPart(sourcePart, chartUri);
+                foreach (Packaging.ZipPackageRelationship rel in sourcePart.GetRelationships())
+                {
+                    if (rel.TargetMode != Packaging.TargetMode.Internal) continue;
+                    var target = _pck.Package.GetPart(UriHelper.ResolvePartUri(sourceUri, rel.TargetUri));
+                    string name = rel.RelationshipType.EndsWith("/chartStyle") ? "style" : rel.RelationshipType.EndsWith("/chartColorStyle") ? "colors" : "chartExPart";
+                    var targetUri = XmlHelper.GetNewUri(_pck.Package, "/xl/charts/" + name + "{0}.xml");
+                    CopyPart(target, targetUri);
+                    chartPart.CreateRelationship(UriHelper.GetRelativeUri(chartUri, targetUri), Packaging.TargetMode.Internal, rel.RelationshipType);
+                }
+                relAtt.Value = part.CreateRelationship(UriHelper.GetRelativeUri(uriDraw, chartUri), Packaging.TargetMode.Internal, sourceRel.RelationshipType).Id;
+            }
+        }
+
+        private Packaging.ZipPackagePart CopyPart(Packaging.ZipPackagePart source, Uri uri)
+        {
+            var copy = _pck.Package.CreatePart(uri, source.ContentType, _pck.Compression);
+            byte[] bytes = source.GetStream(FileMode.Open, FileAccess.Read).ToArray();
+            copy.GetStream(FileMode.Create, FileAccess.Write).Write(bytes, 0, bytes.Length);
+            return copy;
+        }
+
         private void CopyDrawing(ExcelWorksheet Copy, ExcelWorksheet workSheet/*, PackageRelationship r*/)
         {
             
@@ -725,7 +762,12 @@ namespace OfficeOpenXml
                             _pck._images[pic.ImageHash].RefCount++;
                         }
                     }
+                    else if (draw is ExcelChartEx)
+                    {
+                        ((ExcelChartEx)draw).Save(); // orabooster-epplus: the part is written from the properties; it is copied below
+                    }
                 }
+                CopyChartExParts(Copy, drawXml, part, uriDraw);
                 //rewrite the drawing xml with the new relID's
                 streamDrawing = new StreamWriter(part.GetStream(FileMode.Create, FileAccess.Write));
                 streamDrawing.Write(drawXml.OuterXml);
