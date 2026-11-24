@@ -48,6 +48,13 @@ namespace OfficeOpenXml.Packaging
             SaveHandler = null;
             Uri = new Uri(package.GetUriKey(entry.FileName), UriKind.Relative);
         }
+        // orabooster-epplus: a part read with System.IO.Compression (ZipPackage loads with ZipArchive)
+        internal ZipPackagePart(ZipPackage package, string entryName)
+        {
+            Package = package;
+            SaveHandler = null;
+            Uri = new Uri(package.GetUriKey(entryName), UriKind.Relative);
+        }
         internal ZipPackagePart(ZipPackage package, Uri partUri, string contentType, CompressionLevel compressionLevel)
         {
             Package = package;

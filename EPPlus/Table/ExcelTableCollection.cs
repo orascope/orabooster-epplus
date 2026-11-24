@@ -154,14 +154,20 @@ namespace OfficeOpenXml.Table
                 var range = _ws.Cells[Table.Address.Address];
                 _tableNames.Remove(Table.Name);
                 _tables.Remove(Table);
+                // orabooster-epplus: the next id was decremented once per worksheet (not once per deleted table), so with
+                // several sheets the next table got id 0 or an id already in use and Excel asked to repair the file.
+                // Renumber the tables after the deleted one and take the next id from the largest id that is left.
+                int nextId = 1;
                 foreach (var sheet in Table.WorkSheet.Workbook.Worksheets)
                 {
+                    if (sheet is ExcelChartsheet) continue; // as in ExcelWorkbook.ReadAllTables
                     foreach (var table in sheet.Tables)
                     {
                         if (table.Id > Table.Id) table.Id--;
+                        if (table.Id >= nextId) nextId = table.Id + 1;
                     }
-                    Table.WorkSheet.Workbook._nextTableID--;
                 }
+                Table.WorkSheet.Workbook._nextTableID = nextId;
                 if (ClearRange)
                 {
                     range.Clear();
