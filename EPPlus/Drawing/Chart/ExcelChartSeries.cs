@@ -189,7 +189,7 @@ namespace OfficeOpenXml.Drawing.Chart
                    InserAfter(_node, "c:varyColors,c:grouping,c:barDir,c:scatterStyle,c:ofPieType", ser);
                 }
                int idx = FindIndex();
-               ser.InnerXml = string.Format("<c:idx val=\"{1}\" /><c:order val=\"{1}\" /><c:tx><c:strRef><c:f></c:f><c:strCache><c:ptCount val=\"1\" /></c:strCache></c:strRef></c:tx>{5}{0}{2}{3}{4}", AddExplosion(Chart.ChartType), idx, AddScatterPoint(Chart.ChartType), AddAxisNodes(Chart.ChartType), AddSmooth(Chart.ChartType), AddMarker(Chart.ChartType));
+               ser.InnerXml = string.Format("<c:idx val=\"{1}\" /><c:order val=\"{1}\" /><c:tx><c:strRef><c:f></c:f><c:strCache><c:ptCount val=\"1\" /></c:strCache></c:strRef></c:tx>{5}{0}{2}{3}{4}", AddExplosion(Chart.ChartType), idx, AddScatterPoint(Chart.ChartType), AddAxisNodes(Chart.ChartType), AddSmooth(Chart.ChartType), AddMarker(Chart.ChartType, idx));
                ExcelChartSerie serie;
                switch (Chart.ChartType)
                {
@@ -334,8 +334,17 @@ namespace OfficeOpenXml.Drawing.Chart
        }
        #endregion
        #region "Xml init Functions"
-       private string AddMarker(eChartType chartType)
+       private string AddMarker(eChartType chartType, int idx)
        {
+           if (chartType == eChartType.StockHLC || chartType == eChartType.StockOHLC)
+           {
+               // orabooster-epplus: stock series are drawn by the high-low lines and up/down bars, not by their own line or markers.
+               // In a high-low-close chart the third series (close) is a dash on the high-low line, as Excel draws it.
+               string marker = chartType == eChartType.StockHLC && idx == 2
+                   ? "<c:marker><c:symbol val=\"dash\" /><c:size val=\"7\" /><c:spPr><a:solidFill><a:srgbClr val=\"404040\"/></a:solidFill><a:ln><a:noFill/></a:ln></c:spPr></c:marker>"
+                   : "<c:marker><c:symbol val=\"none\" /></c:marker>";
+               return "<c:spPr><a:ln w=\"19050\"><a:noFill/></a:ln></c:spPr>" + marker;
+           }
            if (chartType == eChartType.Line ||
                chartType == eChartType.LineStacked ||
                chartType == eChartType.LineStacked100 ||

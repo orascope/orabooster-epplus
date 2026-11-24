@@ -2981,6 +2981,7 @@ namespace OfficeOpenXml
                             if (d is ExcelChart)
                             {
                                 ExcelChart c = (ExcelChart)d;
+                                c.UpdateStockSeriesCache(); // orabooster-epplus: stock charts only
                                 c.ChartXml.Save(c.Part.GetStream(FileMode.Create, FileAccess.Write));
                             }
                         }

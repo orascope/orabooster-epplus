@@ -4,7 +4,7 @@
     <TargetFrameworks>netstandard2.1</TargetFrameworks>
     <AssemblyVersion>4.5.3.8</AssemblyVersion>
     <FileVersion>4.5.3.8</FileVersion>
-    <Version>4.5.3.8-ora.1</Version>
+    <Version>4.5.3.8-ora.2</Version>
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
 	<PackageIcon>icon.jpg</PackageIcon>
     <PackageLicenseUrl></PackageLicenseUrl>
@@ -21,6 +21,11 @@
     <PackageTags>EPPlus Excel Spreadsheet xlsx ooxml</PackageTags>
     <Copyright>Copyright (C) 2011-2020 Jan Källman, EPPlus Software AB, Rimland; fork changes 2026 OraScope Co.,Ltd.</Copyright>
     <PackageReleaseNotes>
+		4.5.3.8-ora.2
+		- Deleting a table no longer leaves the next table id at 0 or at an id in use (issue #2).
+		- Column3D, StockHLC and StockOHLC charts; the volume stock charts throw NotSupportedException before anything is added (issue #3).
+		- Cell addresses are built without extra strings (issue #4). Loading uses System.IO.Compression (issue #5).
+		- EPPlusTest runs on .NET 10 (issue #6).
 		4.5.3.8-ora.1 (orabooster-epplus, a fork of EPPlusFree 4.5.3.8 by OraScope Co.,Ltd.)
 		- Saves the package with System.IO.Compression (native zlib) instead of the managed DotNetZip deflater.
 		- Fewer allocations when worksheet cells are written. TypeCompat.IsPrimitive without reflection.

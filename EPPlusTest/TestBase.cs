@@ -11,8 +11,8 @@ namespace EPPlusTest
     {
         protected ExcelPackage _pck;
         protected string _clipartPath="";
-        protected string _worksheetPath= @"c:\epplusTest\Testoutput\";
-        protected string _testInputPath = @"c:\epplusTest\workbooks\";
+        protected string _worksheetPath= Path.Combine(Path.GetTempPath(), "EPPlusTest", "Testoutput") + "\\"; // orabooster-epplus: not the root of C:
+        protected string _testInputPath = Path.Combine(Path.GetTempPath(), "EPPlusTest", "workbooks") + "\\"; // orabooster-epplus: not the root of C:
         public TestContext TestContext { get; set; }
         
         [TestInitialize]
@@ -56,6 +56,7 @@ namespace EPPlusTest
             //    Directory.CreateDirectory(_worksheetPath);
             //}
             var di=new DirectoryInfo(_worksheetPath);            
+            if (!di.Exists) di.Create(); // orabooster-epplus
             _worksheetPath = di.FullName + "\\";
 
             _pck = new ExcelPackage();

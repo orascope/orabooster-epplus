@@ -429,7 +429,7 @@ namespace OfficeOpenXml.Drawing.Chart
        {
            //_chartXmlHelper = new XmlHelper(drawings.NameSpaceManager, chartNode);
            _chartXmlHelper = XmlHelperFactory.Create(drawings.NameSpaceManager, chartNode);
-           _chartXmlHelper.SchemaNodeOrder = new string[] { "ofPieType", "title", "pivotFmt", "autoTitleDeleted", "view3D", "floor", "sideWall", "backWall", "plotArea", "wireframe", "barDir", "grouping", "scatterStyle", "radarStyle", "varyColors", "ser", "dLbls", "bubbleScale", "showNegBubbles", "dropLines", "upDownBars", "marker", "smooth", "shape", "legend", "plotVisOnly", "dispBlanksAs", "gapWidth", "showDLblsOverMax", "overlap", "bandFmts", "axId", "spPr", "printSettings" };
+           _chartXmlHelper.SchemaNodeOrder = new string[] { "ofPieType", "title", "pivotFmt", "autoTitleDeleted", "view3D", "floor", "sideWall", "backWall", "plotArea", "wireframe", "barDir", "grouping", "scatterStyle", "radarStyle", "varyColors", "ser", "dLbls", "bubbleScale", "showNegBubbles", "dropLines", "hiLowLines", "upDownBars", "marker", "smooth", "shape", "legend", "plotVisOnly", "dispBlanksAs", "gapWidth", "showDLblsOverMax", "overlap", "bandFmts", "axId", "spPr", "printSettings" };
            WorkSheet = drawings.Worksheet;
        }
        #endregion
@@ -690,6 +690,12 @@ namespace OfficeOpenXml.Drawing.Chart
            {
                xml.Append("<c:bandFmts/>");
            }
+           // orabooster-epplus: a stock chart draws the high-low lines (and, with an open series, the up/down bars) instead of the series lines
+           if (type == eChartType.StockHLC || type == eChartType.StockOHLC)
+           {
+               xml.Append("<c:hiLowLines><c:spPr><a:ln w=\"9525\"><a:solidFill><a:srgbClr val=\"404040\"/></a:solidFill></a:ln></c:spPr></c:hiLowLines>"); // without a line Excel draws nothing
+               if (type == eChartType.StockOHLC) xml.Append("<c:upDownBars><c:gapWidth val=\"150\"/><c:upBars/><c:downBars/></c:upDownBars>");
+           }
            xml.Append(AddAxisId(axID, xAxID, serAxID));
 
            return xml.ToString();
@@ -794,6 +800,10 @@ namespace OfficeOpenXml.Drawing.Chart
        }
        private string AddVaryColors()
        {
+           if (ChartType == eChartType.StockHLC || ChartType == eChartType.StockOHLC)
+           {
+               return ""; // orabooster-epplus: c:stockChart has no varyColors element
+           }
            if (IsTypePieDoughnut())
             {
                return "<c:varyColors val=\"1\" />";
@@ -1065,6 +1075,7 @@ namespace OfficeOpenXml.Drawing.Chart
                 case eChartType.BarClustered3D:
                 case eChartType.BarStacked3D:
                 case eChartType.BarStacked1003D:
+                case eChartType.Column3D: // orabooster-epplus: was missing (NotImplementedException)
                 case eChartType.ColumnClustered3D:
                 case eChartType.ColumnStacked3D:
                 case eChartType.ColumnStacked1003D:
@@ -1131,6 +1142,7 @@ namespace OfficeOpenXml.Drawing.Chart
                 case eChartType.SurfaceTopViewWireframe:
                     return "c:surfaceChart";
                 case eChartType.StockHLC:
+                case eChartType.StockOHLC: // orabooster-epplus: high-low-close and open-high-low-close
                     return "c:stockChart";
                 default:
                     throw(new NotImplementedException("Chart type not implemented"));
@@ -1187,6 +1199,75 @@ namespace OfficeOpenXml.Drawing.Chart
                 chart._axis = _axis;
             }
         }
+        // orabooster-epplus: Excel shows the high-low lines of a stock chart only when the series carry cached values when the
+        // file is opened; it does not turn them on after it calculates the series. EPPlus writes no caches, so stock charts get
+        // their caches from the worksheet values when they are saved. Other chart types are not changed.
+        internal void UpdateStockSeriesCache()
+        {
+            if (ChartType != eChartType.StockHLC && ChartType != eChartType.StockOHLC) return;
+            if (_chartNode == null) return;
+            foreach (XmlNode ser in _chartNode.SelectNodes("c:ser", NameSpaceManager))
+            {
+                WriteSeriesCache(ser.SelectSingleNode("c:tx/c:strRef", NameSpaceManager), false);
+                XmlNode cat = ser.SelectSingleNode("c:cat/c:numRef", NameSpaceManager);
+                if (cat != null) WriteSeriesCache(cat, true);
+                else WriteSeriesCache(ser.SelectSingleNode("c:cat/c:strRef", NameSpaceManager), false);
+                WriteSeriesCache(ser.SelectSingleNode("c:val/c:numRef", NameSpaceManager), true);
+            }
+        }
+
+        void WriteSeriesCache(XmlNode a_ref, bool a_numeric)
+        {
+            if (a_ref == null) return;
+            XmlNode fNode = a_ref.SelectSingleNode("c:f", NameSpaceManager);
+            if (fNode == null || string.IsNullOrEmpty(fNode.InnerText)) return;
+            ExcelAddressBase addr;
+            try { addr = new ExcelAddressBase(fNode.InnerText); } catch { return; }
+            ExcelWorksheet ws = string.IsNullOrEmpty(addr.WorkSheet) ? _drawings.Worksheet : _drawings.Worksheet.Workbook.Worksheets[addr.WorkSheet];
+            if (ws == null || addr._fromRow < 1 || addr._fromCol < 1) return;
+
+            foreach (XmlNode old in a_ref.SelectNodes("c:numCache|c:strCache", NameSpaceManager)) a_ref.RemoveChild(old);
+            XmlDocument doc = a_ref.OwnerDocument;
+            XmlElement cache = doc.CreateElement("c", a_numeric ? "numCache" : "strCache", ExcelPackage.schemaChart);
+            if (a_numeric)
+            {
+                string fmt = ws.Cells[addr._fromRow, addr._fromCol].Style.Numberformat.Format;
+                XmlElement fc = doc.CreateElement("c", "formatCode", ExcelPackage.schemaChart);
+                fc.InnerText = string.IsNullOrEmpty(fmt) ? "General" : fmt;
+                cache.AppendChild(fc);
+            }
+            int count = (addr._toRow - addr._fromRow + 1) * (addr._toCol - addr._fromCol + 1);
+            XmlElement ptCount = doc.CreateElement("c", "ptCount", ExcelPackage.schemaChart);
+            ptCount.SetAttribute("val", count.ToString(CultureInfo.InvariantCulture));
+            cache.AppendChild(ptCount);
+            int idx = 0;
+            for (int r = addr._fromRow; r <= addr._toRow; r++)
+            {
+                for (int c = addr._fromCol; c <= addr._toCol; c++, idx++)
+                {
+                    object v = ws.GetValue(r, c);
+                    string text = null;
+                    if (a_numeric)
+                    {
+                        if (v is DateTime) text = ((DateTime)v).ToOADate().ToString("R", CultureInfo.InvariantCulture);
+                        else if (v != null && ConvertUtil.IsNumeric(v)) text = ConvertUtil.GetValueDouble(v).ToString("R", CultureInfo.InvariantCulture);
+                    }
+                    else if (v != null)
+                    {
+                        text = ws.Cells[r, c].Text;
+                    }
+                    if (text == null) continue; // an empty or non-numeric cell has no point, as in Excel
+                    XmlElement pt = doc.CreateElement("c", "pt", ExcelPackage.schemaChart);
+                    pt.SetAttribute("idx", idx.ToString(CultureInfo.InvariantCulture));
+                    XmlElement ve = doc.CreateElement("c", "v", ExcelPackage.schemaChart);
+                    ve.InnerText = text;
+                    pt.AppendChild(ve);
+                    cache.AppendChild(pt);
+                }
+            }
+            a_ref.AppendChild(cache);
+        }
+
         internal void RemoveSecondaryAxis()
         {
             throw (new NotImplementedException("Not yet implemented"));

@@ -430,14 +430,18 @@ namespace OfficeOpenXml
                 return "#REF!";
             }
 
-            string sCol = "";
+            // orabooster-epplus: write the letters into one buffer (was one new string per letter). Same result.
+            // It runs for every cell when values are set through Cells[row, col] and when a worksheet is saved.
+            Span<char> buf = stackalloc char[16];
+            int pos = buf.Length;
             do
             {
-                sCol = ((char)('A' + ((iColumnNumber - 1) % 26))).ToString() + sCol;
+                buf[--pos] = (char)('A' + ((iColumnNumber - 1) % 26));
                 iColumnNumber = (iColumnNumber - ((iColumnNumber - 1) % 26)) / 26;
             }
             while (iColumnNumber > 0);
-            return fixedCol ? "$" + sCol : sCol;
+            if (fixedCol) buf[--pos] = '$';
+            return new string(buf.Slice(pos));
         }
         #endregion
 
@@ -675,6 +679,24 @@ namespace OfficeOpenXml
             if (Absolute)
             {
                 return ("$" + GetColumnLetter(Column) + "$" + Row.ToString());
+            }
+            else if (Column > 0)
+            {
+                // orabooster-epplus: letters and row number in one buffer, the same text as GetColumnLetter(Column) + Row.ToString()
+                Span<char> buf = stackalloc char[32];
+                int pos = 16;
+                int c = Column;
+                do
+                {
+                    buf[--pos] = (char)('A' + ((c - 1) % 26));
+                    c = (c - ((c - 1) % 26)) / 26;
+                }
+                while (c > 0);
+                if (Row.TryFormat(buf.Slice(16), out int n))
+                {
+                    return new string(buf.Slice(pos, 16 - pos + n));
+                }
+                return (GetColumnLetter(Column) + Row.ToString());
             }
             else
             {

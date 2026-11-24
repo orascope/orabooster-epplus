@@ -96,55 +96,58 @@ namespace OfficeOpenXml.Packaging
             {
                 var rels = new Dictionary<string, string>();
                 stream.Seek(0, SeekOrigin.Begin);                
-                using (ZipInputStream zip = new ZipInputStream(stream))
+                // orabooster-epplus: read with System.IO.Compression.ZipArchive (native zlib) instead of the managed DotNetZip ZipInputStream.
+                // Same rules as before: parts with no content are skipped, the separator is taken from the first entry name.
+                System.IO.Compression.ZipArchive zip;
+                try
                 {
-                    var e = zip.GetNextEntry();
-                    if(e==null)
+                    zip = new System.IO.Compression.ZipArchive(stream, System.IO.Compression.ZipArchiveMode.Read, true);
+                }
+                catch (InvalidDataException)
+                {
+                    throw (new InvalidDataException("The file is not an valid Package file. If the file is encrypted, please supply the password in the constructor."));
+                }
+                using (zip)
+                {
+                    if (zip.Entries.Count == 0)
                     {
                         throw (new InvalidDataException("The file is not an valid Package file. If the file is encrypted, please supply the password in the constructor."));
                     }
-                    if (e.FileName.Contains("\\"))
+                    _dirSeparator = zip.Entries[0].FullName.Contains("\\") ? '\\' : '/';
+                    foreach (var e in zip.Entries)
                     {
-                        _dirSeparator = '\\';
-                    }
-                    else
-                    {
-                        _dirSeparator = '/';
-                    }
-                    while (e != null)
-                    {
-                        if (e.UncompressedSize > 0)
+                        if (e.Length <= 0) continue;
+                        var b = new byte[e.Length];
+                        using (var es = e.Open())
                         {
-                            var b = new byte[e.UncompressedSize];
-                            var size = zip.Read(b, 0, (int)e.UncompressedSize);
-                            if (e.FileName.Equals("[content_types].xml", StringComparison.OrdinalIgnoreCase))
+                            int read = 0;
+                            while (read < b.Length)
                             {
-                                AddContentTypes(Encoding.UTF8.GetString(b));
-                                hasContentTypeXml = true;
+                                int n = es.Read(b, read, b.Length - read);
+                                if (n <= 0) break;
+                                read += n;
                             }
-                            else if (e.FileName.Equals($"_rels{_dirSeparator}.rels", StringComparison.OrdinalIgnoreCase)) 
-                            {
-                                ReadRelation(Encoding.UTF8.GetString(b), "");
-                            }
-                            else
-                            {
-                                if (e.FileName.EndsWith(".rels", StringComparison.OrdinalIgnoreCase))
-                                {
-                                    rels.Add(GetUriKey(e.FileName), Encoding.UTF8.GetString(b));
-                                }
-                                else
-                                {                                    
-                                    var part = new ZipPackagePart(this, e);
-                                    part.Stream = new MemoryStream();
-                                    part.Stream.Write(b, 0, b.Length);
-                                    Parts.Add(GetUriKey(e.FileName), part);
-                                }
-                            }
+                        }
+                        if (e.FullName.Equals("[content_types].xml", StringComparison.OrdinalIgnoreCase))
+                        {
+                            AddContentTypes(Encoding.UTF8.GetString(b));
+                            hasContentTypeXml = true;
+                        }
+                        else if (e.FullName.Equals($"_rels{_dirSeparator}.rels", StringComparison.OrdinalIgnoreCase))
+                        {
+                            ReadRelation(Encoding.UTF8.GetString(b), "");
+                        }
+                        else if (e.FullName.EndsWith(".rels", StringComparison.OrdinalIgnoreCase))
+                        {
+                            rels.Add(GetUriKey(e.FullName), Encoding.UTF8.GetString(b));
                         }
                         else
                         {
+                            var part = new ZipPackagePart(this, e.FullName);
+                            part.Stream = new MemoryStream();
+                            part.Stream.Write(b, 0, b.Length);
+                            Parts.Add(GetUriKey(e.FullName), part);
                         }
-                        e = zip.GetNextEntry();
                     }
 
                     foreach (var p in Parts)
@@ -169,12 +172,6 @@ namespace OfficeOpenXml.Packaging
                     {
                         throw (new InvalidDataException("The file is not an valid Package file. If the file is encrypted, please supply the password in the constructor."));
                     }
-                    if (!hasContentTypeXml)
-                    {
-                        throw (new InvalidDataException("The file is not an valid Package file. If the file is encrypted, please supply the password in the constructor."));
-                    }
-                    zip.Close();
-                    zip.Dispose();
                 }
             }
         }

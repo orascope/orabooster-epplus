@@ -269,11 +269,12 @@ namespace OfficeOpenXml.Drawing
                     throw new Exception("Name already exists in the drawings collection");
                 }
 
-                if (ChartType == eChartType.StockHLC ||
-                    ChartType == eChartType.StockOHLC ||
+                // orabooster-epplus: StockHLC and StockOHLC are supported. The volume stock charts need a bar chart and a stock chart
+                // on two axis groups and are not. Check before anything is added to the drawing (StockVHLC used to fail half way).
+                if (ChartType == eChartType.StockVHLC ||
                     ChartType == eChartType.StockVOHLC)
                 {
-                    throw(new NotImplementedException("Chart type is not supported in the current version"));
+                    throw(new NotSupportedException("Chart type is not supported in the current version"));
                 }
                 if (Worksheet is ExcelChartsheet && _drawings.Count > 0)
                 {
