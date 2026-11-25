@@ -903,6 +903,12 @@ namespace EPPlusTest
                     "</tbody>\r\n</table>", m.Cells["A1:C3"].ToHtml());
                 // a range that starts inside a merged area: the part inside is one cell with the value of the area
                 Assert.AreEqual("<table>\r\n<tbody>\r\n<tr><td>Head</td><td>C</td></tr>\r\n</tbody>\r\n</table>", m.Cells["B1:C1"].ToHtml(false));
+                // a merged area that goes from the head into the body: a cell of the head and a cell of the body, every row has its cells
+                var v = p.Workbook.Worksheets.Add("V");
+                v.Cells["A1"].Value = "Down"; v.Cells["A1:A3"].Merge = true; v.Cells["B1"].Value = "h"; v.Cells["B2"].Value = "x"; v.Cells["B3"].Value = "y";
+                Assert.AreEqual(
+                    "<table>\r\n<thead>\r\n<tr><th>Down</th><th>h</th></tr>\r\n</thead>\r\n<tbody>\r\n" +
+                    "<tr><td rowspan=\"2\">Down</td><td>x</td></tr>\r\n<tr><td>y</td></tr>\r\n</tbody>\r\n</table>", v.Cells["A1:B3"].ToHtml());
 
                 Assert.AreEqual("<table>\r\n</table>", p.Workbook.Worksheets.Add("Empty").Cells["A1:B2"].ToHtml());
             }

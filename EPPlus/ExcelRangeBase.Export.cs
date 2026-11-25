@@ -385,18 +385,20 @@ namespace OfficeOpenXml
             if (firstRowIsHeader)
             {
                 sb.Append("<thead>\r\n");
-                AppendHtmlRow(sb, fromRow, fromRow, fromCol, toRow, toCol, "th");
+                AppendHtmlRow(sb, fromRow, fromRow, fromCol, fromRow, toCol, "th"); // the head is one row
                 sb.Append("</thead>\r\n");
             }
             sb.Append("<tbody>\r\n");
-            for (int r = firstRowIsHeader ? fromRow + 1 : fromRow; r <= toRow; r++)
+            int firstBody = firstRowIsHeader ? fromRow + 1 : fromRow;
+            for (int r = firstBody; r <= toRow; r++)
             {
-                AppendHtmlRow(sb, r, fromRow, fromCol, toRow, toCol, "td");
+                AppendHtmlRow(sb, r, firstBody, fromCol, toRow, toCol, "td");
             }
             sb.Append("</tbody>\r\n</table>");
             return sb.ToString();
         }
 
+        /// <summary>One row. fromRow and toRow are the rows of its part of the table (the head or the body): a merged area spans inside it.</summary>
         private void AppendHtmlRow(StringBuilder sb, int row, int fromRow, int fromCol, int toRow, int toCol, string tag)
         {
             sb.Append("<tr>");
@@ -407,11 +409,12 @@ namespace OfficeOpenXml
                 if (merged != null)
                 {
                     var area = new ExcelAddressBase(merged);
-                    // only the first cell of a merged area that is inside the export is written; it spans what is inside
+                    // only the first cell of a merged area that is inside this part of the table is written; it spans what is inside.
+                    // An area that goes from the head into the body is a cell of the head and a cell of the body.
                     int firstRow = Math.Max(area.Start.Row, fromRow), firstCol = Math.Max(area.Start.Column, fromCol);
                     if (row != firstRow || c != firstCol) continue;
                     colSpan = Math.Min(area.End.Column, toCol) - firstCol + 1;
-                    rowSpan = Math.Min(area.End.Row, tag == "th" ? row : toRow) - firstRow + 1; // the head is one row
+                    rowSpan = Math.Min(area.End.Row, toRow) - firstRow + 1;
                     // the value and the style of a merged area are those of its first cell
                     AppendHtmlCell(sb, area.Start.Row, area.Start.Column, tag, colSpan, rowSpan);
                     continue;
