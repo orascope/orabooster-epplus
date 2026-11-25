@@ -14,8 +14,11 @@ $failed = 0
 try {
     foreach ($f in Get-ChildItem $Dir -Filter *.xlsx | Sort-Object Name) {
         try {
-            $wb = $xl.Workbooks.Open($f.FullName)
+            # issue 35: the encrypted samples are opened with their password (UpdateLinks 0, ReadOnly, Format 5, Password)
+            if ($f.Name -like 'issue35_encrypted*') { $wb = $xl.Workbooks.Open($f.FullName, 0, $true, 5, 'orabooster') }
+            else { $wb = $xl.Workbooks.Open($f.FullName) }
             $ws = $wb.Worksheets.Item(1)
+            if ($f.Name -like 'issue35_encrypted*') { "  rows Excel has in the encrypted workbook: {0}, A200 = {1}" -f $ws.UsedRange.Rows.Count, $ws.Range('A200').Text }
             "{0}: opened (tables {1}, charts {2}, comments {3})" -f $f.Name, $ws.ListObjects.Count, $ws.ChartObjects().Count, $ws.Comments.Count
             # Every chart: the type Excel gives it (XlChartType: 88-91 are the stock charts, 90 and 91 the ones with volume)
             # and, per chart group, the number of series and whether the high-low lines and up/down bars are on.

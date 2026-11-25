@@ -23,6 +23,7 @@
     <PackageReleaseNotes>
 		4.5.3.8-ora.5
 		- The export of a range: ToDataTable, ToText and SaveToText (delimited text, the reverse of LoadFromText), ToJson, ToHtml (issue #32).
+		- An encrypted workbook is loaded again on .NET 6 and later (issue #35).
 
 		4.5.3.8-ora.4
 		- A chart series added with no X range (null or "") no longer throws or writes a reference with no address (issue #27).
