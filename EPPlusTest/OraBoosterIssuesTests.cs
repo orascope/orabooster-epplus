@@ -718,6 +718,12 @@ namespace EPPlusTest
                 ns.AddNamespace("c", "http://schemas.openxmlformats.org/drawingml/2006/chart");
                 Assert.AreEqual(2, space.SelectNodes("//c:ser", ns).Count);
                 Assert.AreEqual(1, space.SelectNodes("//c:ser/c:cat", ns).Count);
+
+                var bubbles = (ExcelBubbleChart)ws.Drawings.AddChart("C2", eChartType.Bubble);
+                Assert.AreEqual("", bubbles.Series.Add(ws.Cells["B2:B6"], null, ws.Cells["C2:C6"]).XSeries);
+                space = SavedSheet(p, "xl/charts/chart2.xml");
+                Assert.AreEqual(0, space.SelectNodes("//c:ser/c:xVal", ns).Count);
+                Assert.AreEqual(1, space.SelectNodes("//c:ser/c:bubbleSize/c:numRef/c:f", ns).Count);
             }
         }
 

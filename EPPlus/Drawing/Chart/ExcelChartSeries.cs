@@ -46,7 +46,7 @@ namespace OfficeOpenXml.Drawing.Chart
         }
         public ExcelChartSerie Add(ExcelRangeBase Serie, ExcelRangeBase XSerie, ExcelRangeBase BubbleSize)
         {
-            return base.AddSeries(Serie.FullAddressAbsolute, XSerie.FullAddressAbsolute, BubbleSize.FullAddressAbsolute);
+            return base.AddSeries(Serie.FullAddressAbsolute, XSerie == null ? null : XSerie.FullAddressAbsolute, BubbleSize.FullAddressAbsolute); // orabooster-epplus: no X range (issue #27)
         }
         public ExcelChartSerie Add(string SerieAddress, string XSerieAddress, string BubbleSizeAddress)
         {
