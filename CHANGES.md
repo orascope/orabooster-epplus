@@ -1,5 +1,18 @@
 # Changes in orabooster-epplus
 
+## 4.5.3.8-ora.5 (not released yet, OraScope Co.,Ltd.)
+
+The B items of the candidate list in #8, taken one at a time. They only add: a workbook that does not use them is saved exactly as by ora.4 (the samples of `tools/SaveBench` are compared part by part at every merge).
+
+- **#32 (B6)** The export of a range: the reverse of `LoadFromDataTable` and `LoadFromText`. New file `EPPlus/ExcelRangeBase.Export.cs`; `ExcelRangeBase` is `partial` for it. Nothing here changes the workbook.
+  - `range.ToDataTable(firstRowIsHeader = true)`: a `DataTable` named after the sheet. A column is typed when all its values have one type (`double`, `DateTime`, `bool`, `string`, `TimeSpan`), `object` when they are mixed, `string` when it has none. A number in a cell with a date format is a `DateTime`. An empty header is `Column` and its position, a header that comes again gets `_2`, `_3`.
+  - `range.ToText(format = null)` and `range.SaveToText(file, format = null)`: delimited text (RFC 4180) with the `ExcelTextFormat` of `LoadFromText`: delimiter, text qualifier, end of line, culture. Numbers have all their digits, dates are `yyyy-MM-dd` or `yyyy-MM-dd HH:mm:ss`, booleans `TRUE` and `FALSE`. A value is qualified when it has the delimiter, the qualifier (doubled), a line break or a space at an end in it, and also when it is a text that would be read as a number or a date (`00123`, `1e5`, `2026-01-02`), so that `LoadFromText` with the same format gives the same values. With no text qualifier in the format, the double quote is used where one is needed. `SaveToText` with no format writes UTF-8 with a byte order mark (Excel reads it right); with a format it uses the encoding of the format.
+  - `range.ToJson(firstRowIsHeader = true)`: a JSON array (RFC 8259) of objects named by the first row, or of arrays. Numbers with all their digits, `true`, `false`, `null`, dates as text `yyyy-MM-ddTHH:mm:ss`. Written by hand: the library has no JSON dependency.
+  - `range.ToHtml(firstRowIsHeader = true)`: a `table` with the text of every cell as Excel shows it (escaped, a line break is `br`), merged cells as `colspan` and `rowspan`, numbers and dates to the right, bold and italic. No colours, borders or widths.
+  - A range of whole rows or columns ends at the last row and column of the sheet that has a cell. A range with several areas gives its first area.
+  - Checked in Excel 16: `issue32_export.csv` of `SaveBench issues` opens with the cells of `issue32_export.xlsx`: Korean text, a comma, a quote and a line break inside a cell, numbers, dates. Excel itself turns the quoted `"00123"` into the number 123, as it does with any CSV; `LoadFromText` keeps it a text.
+  - Tests: 5 new (`Range_to_...`, `Range_is_saved_...`): column types and names, a round trip through `LoadFromText` in two cultures, the encoding of the file, a parse with `System.Text.Json`, the HTML text. Whole suite: 1,207 passed, 0 failed, 214 skipped. `charts`, `variety`, `keep` and the thirteen issue samples that were there before are part by part the same.
+
 ## 4.5.3.8-ora.4 (2026-11-25, OraScope Co.,Ltd.)
 
 Two fixes for charts, both found while OraBooster was moved to ora.3. No new feature and no change of the public API.

@@ -36,6 +36,7 @@ Full list with file names: [CHANGES.md](CHANGES.md). Every change is also marked
 
 | Version | Change |
 |---|---|
+| 4.5.3.8-ora.5 (not released yet) | The export of a range: `range.ToDataTable()`, `range.ToText(format)` and `range.SaveToText(file)` (CSV, the reverse of `LoadFromText`), `range.ToJson()`, `range.ToHtml()` (#32) |
 | 4.5.3.8-ora.4 | A chart series with no X range: `chart.Series.Add("B2:B20", null)` no longer throws, and `""` no longer writes a reference with no address (#27) |
 | | A loaded `XYScatter` chart has its chart type (it was `XYScatterLinesNoMarkers`), so a series added to it has markers and no line (#29) |
 | 4.5.3.8-ora.3 | Ignored errors: `ws.IgnoredErrors.Add("A2:A100", eErrorChecks.NumberStoredAsText)` hides the green error-check triangles on a range (#9) |
@@ -86,7 +87,7 @@ Tests (EPPlusTest, MSTest, `net10.0-windows`):
 dotnet test EPPlusTest/EPPlusTest.Core.csproj -c Release
 ```
 
-1,202 passed, 0 failed, 214 skipped (the skipped ones are marked `[Ignore]` in EPPlus 4.5; most need files that are not in the repository). `OraBoosterIssuesTests` covers the fixes and the new features in this fork. Some old tests still write files to `C:\temp`.
+1,207 passed, 0 failed, 214 skipped (the skipped ones are marked `[Ignore]` in EPPlus 4.5; most need files that are not in the repository). `OraBoosterIssuesTests` covers the fixes and the new features in this fork. Some old tests still write files to `C:\temp`.
 Until ora.2 ten tests failed and one stopped the test host and was left out of the run; see #23 in [CHANGES.md](CHANGES.md).
 
 Tools:

@@ -4,7 +4,7 @@
     <TargetFrameworks>netstandard2.1</TargetFrameworks>
     <AssemblyVersion>4.5.3.8</AssemblyVersion>
     <FileVersion>4.5.3.8</FileVersion>
-    <Version>4.5.3.8-ora.4</Version>
+    <Version>4.5.3.8-ora.5</Version>
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
 	<PackageIcon>icon.jpg</PackageIcon>
     <PackageLicenseUrl></PackageLicenseUrl>
@@ -21,6 +21,9 @@
     <PackageTags>EPPlus Excel Spreadsheet xlsx ooxml</PackageTags>
     <Copyright>Copyright (C) 2011-2020 Jan Källman, EPPlus Software AB, Rimland; fork changes 2026 OraScope Co.,Ltd.</Copyright>
     <PackageReleaseNotes>
+		4.5.3.8-ora.5
+		- The export of a range: ToDataTable, ToText and SaveToText (delimited text, the reverse of LoadFromText), ToJson, ToHtml (issue #32).
+
 		4.5.3.8-ora.4
 		- A chart series added with no X range (null or "") no longer throws or writes a reference with no address (issue #27).
 		- A loaded XYScatter chart has its chart type (it was XYScatterLinesNoMarkers), so a series added to it has markers and no line (issue #29).
