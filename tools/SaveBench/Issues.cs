@@ -163,6 +163,32 @@ static class Issues
             }
         }
 
+        // #32: the export of a range. One sheet is written as issue32_export.xlsx and its range as .csv (UTF-8 with a byte order
+        // mark, for Excel), .json and .html. Opened in Excel, the csv must show the same cells as the xlsx (text with a comma,
+        // a quote and a line break in one cell each, 00123 as text, numbers, a date, Korean).
+        using (var p = new ExcelPackage())
+        {
+            var ws = p.Workbook.Worksheets.Add("Export");
+            object[][] rows =
+            {
+                new object[] { "Name", "Note", "Code", "Amount", "Day" },
+                new object[] { "가나다", "with,comma", "00123", 1234.5, new DateTime(2026, 1, 2) },
+                new object[] { "say \"hi\"", "two\nlines", "A-1", -0.25, new DateTime(2026, 11, 26, 13, 4, 5) },
+                new object[] { "last", null, "7", 1e15, null },
+            };
+            for (int r = 0; r < rows.Length; r++) for (int c = 0; c < 5; c++) ws.Cells[r + 1, c + 1].Value = rows[r][c];
+            ws.Cells["A1:E1"].Style.Font.Bold = true;
+            ws.Cells["D2:D4"].Style.Numberformat.Format = "#,##0.00";
+            ws.Cells["E2:E4"].Style.Numberformat.Format = "yyyy-mm-dd hh:mm:ss";
+            ws.Cells["A1:E4"].AutoFitColumns();
+            p.SaveAs(new FileInfo(Path.Combine(a_dir, "issue32_export.xlsx")));
+            ws.Cells["A1:E4"].SaveToText(new FileInfo(Path.Combine(a_dir, "issue32_export.csv")));
+            File.WriteAllText(Path.Combine(a_dir, "issue32_export.json"), ws.Cells["A1:E4"].ToJson(), new System.Text.UTF8Encoding(false));
+            File.WriteAllText(Path.Combine(a_dir, "issue32_export.html"),
+                "<!DOCTYPE html>\r\n<html><head><meta charset=\"utf-8\"><title>issue 32</title></head><body>\r\n" + ws.Cells["A1:E4"].ToHtml() + "\r\n</body></html>\r\n",
+                new System.Text.UTF8Encoding(false));
+        }
+
         // #29: the five scatter types, one sheet each. The workbook is saved to memory and loaded, and each loaded chart gets a third
         // series. open-in-excel.ps1 must show 3 series and the types -4169, 74, 75, 72, 73; in Excel the third series looks like
         // the first two (before the fix the third series of the first sheet was a line with no markers).

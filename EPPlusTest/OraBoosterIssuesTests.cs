@@ -671,6 +671,249 @@ namespace EPPlusTest
             }
         }
 
+        // #32 (B6 of #8): the export direction of a range. A sheet with a header row and values of every kind.
+        static ExcelWorksheet ExportSheet(ExcelPackage a_package)
+        {
+            var ws = a_package.Workbook.Worksheets.Add("Export");
+            string[] heads = { "ID", "", "ID", "When", "Mixed", "Flag", "Empty" };
+            for (int c = 0; c < heads.Length; c++) ws.Cells[1, c + 1].Value = heads[c];
+            ws.Cells["A2"].Value = 1; ws.Cells["B2"].Value = "a"; ws.Cells["C2"].Value = 2.5; ws.Cells["D2"].Value = new DateTime(2026, 1, 2); ws.Cells["E2"].Value = 1; ws.Cells["F2"].Value = true;
+            ws.Cells["A3"].Value = 2L; ws.Cells["C3"].Value = 3m; ws.Cells["D3"].Value = new DateTime(2026, 1, 2, 13, 4, 5); ws.Cells["E3"].Value = "x"; ws.Cells["F3"].Value = false;
+            ws.Cells["A4"].Value = 3; ws.Cells["B4"].Value = "c"; ws.Cells["D4"].Value = 46000; ws.Cells["D4"].Style.Numberformat.Format = "yyyy-mm-dd"; // a number in a date format
+            ws.Cells["D2:D3"].Style.Numberformat.Format = "yyyy-mm-dd hh:mm:ss";
+            return ws;
+        }
+
+        [TestMethod]
+        public void Range_to_DataTable_has_typed_columns_and_unique_names()
+        {
+            using (var p = new ExcelPackage())
+            {
+                var ws = ExportSheet(p);
+                System.Data.DataTable t = ws.Cells["A1:G4"].ToDataTable();
+                Assert.AreEqual("Export", t.TableName);
+                CollectionAssert.AreEqual(new[] { "ID", "Column2", "ID_2", "When", "Mixed", "Flag", "Empty" }, t.Columns.Cast<System.Data.DataColumn>().Select(c => c.ColumnName).ToArray());
+                CollectionAssert.AreEqual(new[] { typeof(double), typeof(string), typeof(double), typeof(DateTime), typeof(object), typeof(bool), typeof(string) },
+                    t.Columns.Cast<System.Data.DataColumn>().Select(c => c.DataType).ToArray());
+                Assert.AreEqual(3, t.Rows.Count);
+                Assert.AreEqual(2d, t.Rows[1]["ID"]);                       // a long is a number
+                Assert.AreEqual(3d, t.Rows[1]["ID_2"]);                     // a decimal too
+                Assert.AreEqual(DBNull.Value, t.Rows[1]["Column2"]);
+                Assert.AreEqual(DBNull.Value, t.Rows[2]["ID_2"]);
+                Assert.AreEqual(new DateTime(2026, 1, 2, 13, 4, 5), t.Rows[1]["When"]);
+                Assert.AreEqual(DateTime.FromOADate(46000), t.Rows[2]["When"]); // the number 46000 in a date format
+                Assert.AreEqual(1d, t.Rows[0]["Mixed"]);
+                Assert.AreEqual("x", t.Rows[1]["Mixed"]);
+                Assert.AreEqual(false, t.Rows[1]["Flag"]);
+                Assert.AreEqual(System.Data.DataRowState.Unchanged, t.Rows[0].RowState);
+
+                // no header: the first row is data, the columns are named by their position
+                System.Data.DataTable all = ws.Cells["A1:C4"].ToDataTable(false);
+                CollectionAssert.AreEqual(new[] { "Column1", "Column2", "Column3" }, all.Columns.Cast<System.Data.DataColumn>().Select(c => c.ColumnName).ToArray());
+                Assert.AreEqual(4, all.Rows.Count);
+                Assert.AreEqual(typeof(object), all.Columns[0].DataType);   // "ID" and numbers
+                Assert.AreEqual("ID", all.Rows[0][0]);
+
+                // whole columns end at the last row of the sheet that has a cell
+                Assert.AreEqual(3, ws.Cells["A:B"].ToDataTable().Rows.Count);
+                Assert.AreEqual(2, ws.Cells["A:B"].ToDataTable().Columns.Count);
+
+                // an error value is its text, a rich text cell its text
+                ws.Cells["H1"].Value = "Other"; ws.Cells["H2"].Value = ExcelErrorValue.Create(eErrorType.Div0);
+                ws.Cells["H3"].RichText.Add("rich").Bold = true; ws.Cells["H3"].RichText.Add(" text");
+                System.Data.DataTable other = ws.Cells["H1:H3"].ToDataTable();
+                Assert.AreEqual("#DIV/0!", other.Rows[0][0]);
+                Assert.AreEqual("rich text", other.Rows[1][0]);
+
+                // nothing in the sheet, or a range outside the cells: no columns, no rows
+                var empty = p.Workbook.Worksheets.Add("Empty");
+                Assert.AreEqual(0, empty.Cells["A1:C3"].ToDataTable().Columns.Count);
+                Assert.AreEqual(0, ws.Cells["Z50:AA60"].ToDataTable().Rows.Count);
+            }
+        }
+
+        [TestMethod]
+        public void Range_to_text_is_read_back_by_LoadFromText()
+        {
+            using (var p = new ExcelPackage())
+            {
+                var ws = p.Workbook.Worksheets.Add("S");
+                object[][] rows =
+                {
+                    new object[] { "plain", "with,comma", "say \"hi\"", "two\r\nlines", " lead" },
+                    new object[] { "00123", "1e5", "2026-01-02", "50%", "x" },
+                    new object[] { 1234.5, -0.1, 1e21, 0.1 + 0.2, 7 },
+                    new object[] { new DateTime(2026, 1, 2), new DateTime(2026, 1, 2, 13, 4, 5), null, "", "end" },
+                };
+                for (int r = 0; r < rows.Length; r++) for (int c = 0; c < 5; c++) ws.Cells[r + 1, c + 1].Value = rows[r][c];
+                ws.Cells["A4:B4"].Style.Numberformat.Format = "yyyy-mm-dd hh:mm:ss";
+
+                var format = new ExcelTextFormat { TextQualifier = '"' };
+                string text = ws.Cells["A1:E4"].ToText(format);
+                string[] lines = text.Split(new[] { "\r\n" }, StringSplitOptions.None);
+                Assert.AreEqual("plain,\"with,comma\",\"say \"\"hi\"\"\",\"two", lines[0]);
+                Assert.AreEqual("lines\",\" lead\"", lines[1]);
+                Assert.AreEqual("\"00123\",\"1e5\",\"2026-01-02\",\"50%\",x", lines[2]);            // text that would be read as a number or a date
+                Assert.AreEqual("1234.5,-0.1,1E+21,0.30000000000000004,7", lines[3]);             // all the digits of a number
+                Assert.AreEqual("2026-01-02,2026-01-02 13:04:05,,,end", lines[4]);
+                Assert.AreEqual("", lines[5]);                                                        // the last line ends with the end of a line too
+                Assert.AreEqual(6, lines.Length);
+
+                var back = p.Workbook.Worksheets.Add("Back");
+                back.Cells["A1"].LoadFromText(text, format);
+                for (int r = 0; r < rows.Length; r++)
+                    for (int c = 0; c < 5; c++)
+                    {
+                        object want = rows[r][c] is int ? (double)(int)rows[r][c] : rows[r][c];
+                        if (want is string && ((string)want).Length == 0) want = null;
+                        Assert.AreEqual(want, back.Cells[r + 1, c + 1].Value, "row " + (r + 1) + " column " + (c + 1));
+                    }
+
+                // the default format has no text qualifier: plain values are not quoted, and a value that needs it gets a double quote
+                ws.Cells["G1"].Value = "a"; ws.Cells["H1"].Value = 1.5; ws.Cells["I1"].Value = true; ws.Cells["J1"].Value = "b,c";
+                Assert.AreEqual("a,1.5,TRUE,\"b,c\"\r\n", ws.Cells["G1:J1"].ToText());
+
+                // a culture with a decimal comma, as Excel writes it there: a semicolon between the values
+                var german = new ExcelTextFormat { Delimiter = ';', Culture = new System.Globalization.CultureInfo("de-DE"), EOL = "\n", TextQualifier = '\'' };
+                ws.Cells["G2"].Value = 1234.5; ws.Cells["H2"].Value = "it's"; ws.Cells["I2"].Value = "1,5";
+                Assert.AreEqual("1234,5;'it''s';'1,5'\n", ws.Cells["G2:I2"].ToText(german));
+                var backGerman = p.Workbook.Worksheets.Add("BackGerman");
+                backGerman.Cells["A1"].LoadFromText(ws.Cells["G2:I2"].ToText(german), german);
+                Assert.AreEqual(1234.5, backGerman.Cells["A1"].Value);
+                Assert.AreEqual("it's", backGerman.Cells["B1"].Value);
+                Assert.AreEqual("1,5", backGerman.Cells["C1"].Value);
+
+                Assert.AreEqual("", p.Workbook.Worksheets.Add("Empty").Cells["A1:B2"].ToText());
+            }
+        }
+
+        [TestMethod]
+        public void Range_is_saved_to_a_text_file_with_the_encoding_of_the_format()
+        {
+            string dir = Path.Combine(Path.GetTempPath(), "orabooster-epplus-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            try
+            {
+                using (var p = new ExcelPackage())
+                {
+                    var ws = p.Workbook.Worksheets.Add("S");
+                    ws.Cells["A1"].Value = "이름"; ws.Cells["B1"].Value = 1.5;
+
+                    var file = new FileInfo(Path.Combine(dir, "default.csv"));
+                    ws.Cells["A1:B1"].SaveToText(file);
+                    byte[] bytes = File.ReadAllBytes(file.FullName);
+                    CollectionAssert.AreEqual(new byte[] { 0xEF, 0xBB, 0xBF }, bytes.Take(3).ToArray()); // UTF-8 with a byte order mark
+                    Assert.AreEqual("이름,1.5\r\n", File.ReadAllText(file.FullName));
+
+                    var korean = new ExcelTextFormat { Encoding = System.Text.Encoding.Unicode, Delimiter = '\t' };
+                    var file2 = new FileInfo(Path.Combine(dir, "utf16.txt"));
+                    ws.Cells["A1:B1"].SaveToText(file2, korean);
+                    Assert.AreEqual("이름\t1.5\r\n", File.ReadAllText(file2.FullName, System.Text.Encoding.Unicode));
+
+                    var back = p.Workbook.Worksheets.Add("Back");
+                    back.Cells["A1"].LoadFromText(file2, korean);
+                    Assert.AreEqual("이름", back.Cells["A1"].Value);
+                    Assert.AreEqual(1.5, back.Cells["B1"].Value);
+                }
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [TestMethod]
+        public void Range_to_JSON_is_valid_JSON()
+        {
+            using (var p = new ExcelPackage())
+            {
+                var ws = ExportSheet(p);
+                ws.Cells["B3"].Value = "say \"hi\" \\ back\r\nline\ttab \u0001 한글";
+                string json = ws.Cells["A1:G4"].ToJson();
+                Assert.IsFalse(json.Contains("\n"));
+                using (System.Text.Json.JsonDocument doc = System.Text.Json.JsonDocument.Parse(json))
+                {
+                    System.Text.Json.JsonElement root = doc.RootElement;
+                    Assert.AreEqual(3, root.GetArrayLength());
+                    CollectionAssert.AreEqual(new[] { "ID", "Column2", "ID_2", "When", "Mixed", "Flag", "Empty" }, root[0].EnumerateObject().Select(m => m.Name).ToArray());
+                    Assert.AreEqual(1d, root[0].GetProperty("ID").GetDouble());
+                    Assert.AreEqual("a", root[0].GetProperty("Column2").GetString());
+                    Assert.AreEqual(2.5, root[0].GetProperty("ID_2").GetDouble());
+                    Assert.AreEqual("2026-01-02T00:00:00", root[0].GetProperty("When").GetString());
+                    Assert.AreEqual(new DateTime(2026, 1, 2, 13, 4, 5), root[1].GetProperty("When").GetDateTime());
+                    Assert.AreEqual(System.Text.Json.JsonValueKind.True, root[0].GetProperty("Flag").ValueKind);
+                    Assert.AreEqual(System.Text.Json.JsonValueKind.False, root[1].GetProperty("Flag").ValueKind);
+                    Assert.AreEqual(System.Text.Json.JsonValueKind.Null, root[0].GetProperty("Empty").ValueKind);
+                    Assert.AreEqual("say \"hi\" \\ back\r\nline\ttab \u0001 한글", root[1].GetProperty("Column2").GetString());
+                    Assert.AreEqual("x", root[1].GetProperty("Mixed").GetString());
+                    Assert.AreEqual(DateTime.FromOADate(46000), root[2].GetProperty("When").GetDateTime());
+                }
+
+                // no header: arrays
+                using (System.Text.Json.JsonDocument doc = System.Text.Json.JsonDocument.Parse(ws.Cells["A1:C2"].ToJson(false)))
+                {
+                    Assert.AreEqual(2, doc.RootElement.GetArrayLength());
+                    Assert.AreEqual("ID", doc.RootElement[0][0].GetString());
+                    Assert.AreEqual(2.5, doc.RootElement[1][2].GetDouble());
+                }
+                Assert.AreEqual("[[1,\"a\",2.5]]", ws.Cells["A2:C2"].ToJson(false));
+                Assert.AreEqual("[{\"ID\":1}]", ws.Cells["A1:A2"].ToJson());
+
+                // a number JSON cannot hold is null
+                ws.Cells["J1"].Value = double.NaN; ws.Cells["K1"].Value = double.PositiveInfinity; ws.Cells["L1"].Value = 0.1 + 0.2;
+                Assert.AreEqual("[[null,null,0.30000000000000004]]", ws.Cells["J1:L1"].ToJson(false));
+                Assert.AreEqual("[]", p.Workbook.Worksheets.Add("Empty").Cells["A1:B2"].ToJson());
+            }
+        }
+
+        [TestMethod]
+        public void Range_to_HTML_has_the_text_Excel_shows()
+        {
+            using (var p = new ExcelPackage())
+            {
+                var ws = p.Workbook.Worksheets.Add("S");
+                ws.Cells["A1"].Value = "Name"; ws.Cells["B1"].Value = "Amount"; ws.Cells["C1"].Value = "Day";
+                ws.Cells["A1:C1"].Style.Font.Bold = true;
+                ws.Cells["A2"].Value = "<b> & \"q\""; ws.Cells["B2"].Value = 1234.5; ws.Cells["C2"].Value = new DateTime(2026, 1, 2);
+                ws.Cells["B2:B3"].Style.Numberformat.Format = "#,##0.00"; ws.Cells["C2"].Style.Numberformat.Format = "yyyy-mm-dd";
+                ws.Cells["A3"].Value = "two\nlines"; ws.Cells["A3"].Style.Font.Italic = true; ws.Cells["A3"].Style.Font.Bold = true;
+                ws.Cells["B3"].Value = -2; ws.Cells["B3"].Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Center;
+
+                string html = ws.Cells["A1:C3"].ToHtml();
+                Assert.AreEqual(
+                    "<table>\r\n" +
+                    "<thead>\r\n" +
+                    "<tr><th>Name</th><th>Amount</th><th>Day</th></tr>\r\n" +
+                    "</thead>\r\n" +
+                    "<tbody>\r\n" +
+                    "<tr><td>&lt;b&gt; &amp; &quot;q&quot;</td><td style=\"text-align:right;\">1,234.50</td><td style=\"text-align:right;\">2026-01-02</td></tr>\r\n" +
+                    "<tr><td style=\"font-weight:bold;font-style:italic;\">two<br>lines</td><td style=\"text-align:center;\">-2.00</td><td></td></tr>\r\n" +
+                    "</tbody>\r\n</table>", html);
+
+                // no header: every row is a row of the body, and a bold cell is bold
+                Assert.IsTrue(ws.Cells["A1:A2"].ToHtml(false).StartsWith("<table>\r\n<tbody>\r\n<tr><td style=\"font-weight:bold;\">Name</td></tr>\r\n"));
+
+                // a merged cell is one cell that spans what is inside the range
+                var m = p.Workbook.Worksheets.Add("M");
+                m.Cells["A1"].Value = "Head"; m.Cells["A1:B1"].Merge = true; m.Cells["C1"].Value = "C";
+                m.Cells["A2"].Value = "tall"; m.Cells["A2:A3"].Merge = true; m.Cells["B2"].Value = 1; m.Cells["C2"].Value = 2; m.Cells["B3"].Value = 3; m.Cells["C3"].Value = 4;
+                Assert.AreEqual(
+                    "<table>\r\n<thead>\r\n" +
+                    "<tr><th colspan=\"2\">Head</th><th>C</th></tr>\r\n" +
+                    "</thead>\r\n<tbody>\r\n" +
+                    "<tr><td rowspan=\"2\">tall</td><td style=\"text-align:right;\">1</td><td style=\"text-align:right;\">2</td></tr>\r\n" +
+                    "<tr><td style=\"text-align:right;\">3</td><td style=\"text-align:right;\">4</td></tr>\r\n" +
+                    "</tbody>\r\n</table>", m.Cells["A1:C3"].ToHtml());
+                // a range that starts inside a merged area: the part inside is one cell with the value of the area
+                Assert.AreEqual("<table>\r\n<tbody>\r\n<tr><td>Head</td><td>C</td></tr>\r\n</tbody>\r\n</table>", m.Cells["B1:C1"].ToHtml(false));
+                // a merged area that goes from the head into the body: a cell of the head and a cell of the body, every row has its cells
+                var v = p.Workbook.Worksheets.Add("V");
+                v.Cells["A1"].Value = "Down"; v.Cells["A1:A3"].Merge = true; v.Cells["B1"].Value = "h"; v.Cells["B2"].Value = "x"; v.Cells["B3"].Value = "y";
+                Assert.AreEqual(
+                    "<table>\r\n<thead>\r\n<tr><th>Down</th><th>h</th></tr>\r\n</thead>\r\n<tbody>\r\n" +
+                    "<tr><td rowspan=\"2\">Down</td><td>x</td></tr>\r\n<tr><td>y</td></tr>\r\n</tbody>\r\n</table>", v.Cells["A1:B3"].ToHtml());
+
+                Assert.AreEqual("<table>\r\n</table>", p.Workbook.Worksheets.Add("Empty").Cells["A1:B2"].ToHtml());
+            }
+        }
+
         // #29: a loaded scatter chart has the type it was made with. XYScatter (markers, no line) came back as XYScatterLinesNoMarkers,
         // so a series added to the loaded chart was written as a line with no markers.
         [TestMethod]
