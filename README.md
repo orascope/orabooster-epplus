@@ -25,7 +25,7 @@ EPPlus 5 and later (https://github.com/EPPlusSoftware/EPPlus) are under the Poly
 The assembly is `OraBooster.EPPlus.dll`; the namespace is `OfficeOpenXml` as in EPPlus 4.5 and EPPlusFree, so code written for EPPlusFree 4.5.3.8 compiles unchanged.
 
 ```xml
-<PackageReference Include="OraBooster.EPPlus" Version="4.5.3.8-ora.3" />
+<PackageReference Include="OraBooster.EPPlus" Version="4.5.3.8-ora.4" />
 ```
 
 The package is not on nuget.org. Build it (below) or take the `.nupkg` from the [releases](https://github.com/orascope/orabooster-epplus/releases), and add the folder as a package source.
@@ -36,7 +36,7 @@ Full list with file names: [CHANGES.md](CHANGES.md). Every change is also marked
 
 | Version | Change |
 |---|---|
-| 4.5.3.8-ora.4 (not released yet) | A chart series with no X range: `chart.Series.Add("B2:B20", null)` no longer throws, and `""` no longer writes a reference with no address (#27) |
+| 4.5.3.8-ora.4 | A chart series with no X range: `chart.Series.Add("B2:B20", null)` no longer throws, and `""` no longer writes a reference with no address (#27) |
 | | A loaded `XYScatter` chart has its chart type (it was `XYScatterLinesNoMarkers`), so a series added to it has markers and no line (#29) |
 | 4.5.3.8-ora.3 | Ignored errors: `ws.IgnoredErrors.Add("A2:A100", eErrorChecks.NumberStoredAsText)` hides the green error-check triangles on a range (#9) |
 | | Stock charts with volume: `AddChart(name, eChartType.StockVHLC)` and `StockVOHLC`; add the series volume first, then (open,) high, low, close (#11) |
@@ -56,6 +56,7 @@ Full list with file names: [CHANGES.md](CHANGES.md). Every change is also marked
 **Output.** For the same workbook (outside the cases fixed in ora.2), every part of the saved package (sheets, styles, shared strings, tables, drawings, properties) is byte-for-byte the same as EPPlusFree 4.5.3.8. Only the zip compression differs; files are a few percent larger.
 Since ora.2 packages are also read with `System.IO.Compression`; a load-and-save copy is part by part the same as with EPPlusFree.
 ora.3 saves a workbook that uses none of its new features and none of its fixed cases exactly as ora.2; [CHANGES.md](CHANGES.md) lists what a caller can see differently.
+ora.4 saves a workbook exactly as ora.3, except for a chart series added with `""` as its X range.
 
 **Speed.** `tools/SaveBench`, 50,000 rows x 15 columns set cell by cell, a table and AutoFit on 1,000 rows, the same PC:
 
