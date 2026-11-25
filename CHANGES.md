@@ -12,6 +12,11 @@ The B items of the candidate list in #8, taken one at a time. They only add: a w
   - A range of whole rows or columns ends at the last row and column of the sheet that has a cell. A range with several areas gives its first area.
   - Checked in Excel 16: `issue32_export.csv` of `SaveBench issues` opens with the cells of `issue32_export.xlsx`: Korean text, a comma, a quote and a line break inside a cell, numbers, dates. Excel itself turns the quoted `"00123"` into the number 123, as it does with any CSV; `LoadFromText` keeps it a text.
   - Tests: 5 new (`Range_to_...`, `Range_is_saved_...`): column types and names, a round trip through `LoadFromText` in two cultures, the encoding of the file, a parse with `System.Text.Json`, the HTML text. Whole suite: 1,207 passed, 0 failed, 214 skipped. `charts`, `variety`, `keep` and the thirteen issue samples that were there before are part by part the same.
+- **#35** An encrypted workbook could not be loaded on .NET 6 and later: `SaveAs(stream, password)` and then `Load(stream, password)` failed ("Number of entries expected in End Of Central Directory does not correspond…"), and so did a workbook Excel had encrypted.
+  - `EPPlus/Encryption/EncryptionHandler.cs` read a `CryptoStream` with one call and took the buffer as full (the package in `DecryptBinary` and `DecryptAgileFromKey`, the verifier in `IsPasswordValid`). Since .NET 6 that call can give fewer bytes than were asked for; the rest stayed zero and the decrypted package was cut short. Now it reads until the buffer is full (`ReadFully`). EPPlus 4.5 code; it worked on .NET Framework.
+  - It was not seen because every test in `EPPlusTest/Encrypt.cs` is `[Ignore]` (they need files). Saving was not wrong: Excel opened the encrypted workbooks all along.
+  - Checked in Excel 16: `issue35_encrypted_standard.xlsx` and `issue35_encrypted_agile.xlsx` of `SaveBench issues` open with the password and have their 200 rows; a workbook Excel saved with a password is loaded with its 300 rows (agile, AES 256).
+  - Tests: 1 new (`Encrypted_workbook_is_loaded_again`): standard and agile encryption with AES 128, 192 and 256, a stream, a file and a byte array, a wrong password. Whole suite: 1,208 passed, 0 failed, 214 skipped. The samples that were there before are part by part the same.
 
 ## 4.5.3.8-ora.4 (2026-11-25, OraScope Co.,Ltd.)
 

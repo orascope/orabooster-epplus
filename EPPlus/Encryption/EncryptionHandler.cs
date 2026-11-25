@@ -668,6 +668,23 @@ namespace OfficeOpenXml.Encryption
             }
         }
 #endif
+        /// <summary>
+        /// orabooster-epplus (issue #35): reads until the buffer has count bytes or the stream ends.
+        /// The code below read a CryptoStream with one call and took the buffer as full. Since .NET 6 CryptoStream.Read can give
+        /// fewer bytes than were asked for; the rest stayed zero, the decrypted package was cut short, and no encrypted workbook
+        /// could be opened.
+        /// </summary>
+        private static int ReadFully(Stream stream, byte[] buffer, int count)
+        {
+            int total = 0;
+            while (total < count)
+            {
+                int read = stream.Read(buffer, total, count - total);
+                if (read <= 0) break;
+                total += read;
+            }
+            return total;
+        }
         private MemoryStream DecryptBinary(EncryptionInfoBinary encryptionInfo, string password, long size, byte[] encryptedData)
         {
             MemoryStream doc = new MemoryStream();
@@ -702,7 +719,7 @@ namespace OfficeOpenXml.Encryption
 
                     var decryptedData = new byte[size];
 
-                    cryptoStream.Read(decryptedData, 0, (int)size);
+                    ReadFully(cryptoStream, decryptedData, (int)size); // orabooster-epplus (issue #35): was one Read
                     doc.Write(decryptedData, 0, (int)size);
                 }
                 else
@@ -740,7 +757,7 @@ namespace OfficeOpenXml.Encryption
                                                           decryptor,
                                                           CryptoStreamMode.Read);
             var decryptedVerifier = new byte[16];
-            cryptoStream.Read(decryptedVerifier, 0, 16);
+            ReadFully(cryptoStream, decryptedVerifier, 16); // orabooster-epplus (issue #35): was one Read
 
             dataStream = new MemoryStream(encryptionInfo.Verifier.EncryptedVerifierHash);
 
@@ -750,7 +767,7 @@ namespace OfficeOpenXml.Encryption
 
             //Decrypt the verifier hash
             var decryptedVerifierHash = new byte[16];
-            cryptoStream.Read(decryptedVerifierHash, 0, (int)16);
+            ReadFully(cryptoStream, decryptedVerifierHash, 16); // orabooster-epplus (issue #35): was one Read
 
             //Get the hash for the decrypted verifier
 #if (Core)
@@ -816,7 +833,7 @@ namespace OfficeOpenXml.Encryption
 
             var decryptedData = new byte[size];
 
-            cryptoStream.Read(decryptedData, 0, (int)size);
+            ReadFully(cryptoStream, decryptedData, (int)size); // orabooster-epplus (issue #35): was one Read
             return decryptedData;
         }
 

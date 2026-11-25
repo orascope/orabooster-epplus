@@ -840,6 +840,63 @@ namespace EPPlusTest
             }
         }
 
+        // #35: an encrypted workbook is loaded again. The decryption read a CryptoStream with one call; since .NET 6 that call can
+        // give fewer bytes than asked for, the package was cut short and no encrypted workbook could be opened.
+        // The tests of Encrypt.cs are all [Ignore] (they need files), so nothing showed it.
+        [TestMethod]
+        public void Encrypted_workbook_is_loaded_again()
+        {
+            Action<ExcelPackage> fill = p =>
+            {
+                var ws = p.Workbook.Worksheets.Add("Secret");
+                for (int r = 1; r <= 3000; r++) for (int c = 1; c <= 10; c++) ws.Cells[r, c].Value = c == 1 ? (object)("row " + r) : r * c; // many 4096 byte segments
+            };
+            Action<ExcelPackage, string> check = (p, what) =>
+            {
+                var ws = p.Workbook.Worksheets["Secret"];
+                Assert.IsNotNull(ws, what);
+                Assert.AreEqual("row 3000", ws.Cells["A3000"].Value, what);
+                Assert.AreEqual(30000d, ws.Cells["J3000"].Value, what);
+            };
+            foreach (EncryptionVersion version in new[] { EncryptionVersion.Standard, EncryptionVersion.Agile })
+            {
+                foreach (EncryptionAlgorithm algorithm in new[] { EncryptionAlgorithm.AES128, EncryptionAlgorithm.AES192, EncryptionAlgorithm.AES256 })
+                {
+                    string what = version + " " + algorithm;
+                    var ms = new MemoryStream();
+                    using (var p = new ExcelPackage())
+                    {
+                        fill(p);
+                        p.Encryption.Version = version;     // sets the default algorithm of the version, so first
+                        p.Encryption.Algorithm = algorithm;
+                        p.SaveAs(ms, "pass word 1");
+                    }
+                    byte[] bytes = ms.ToArray();
+                    CollectionAssert.AreEqual(new byte[] { 0xD0, 0xCF, 0x11, 0xE0 }, bytes.Take(4).ToArray(), what); // a compound document, not a zip
+
+                    using (var p = new ExcelPackage()) { p.Load(new MemoryStream(bytes), "pass word 1"); check(p, what); }
+                    using (var p = new ExcelPackage(new MemoryStream(bytes), "pass word 1")) check(p, what);
+
+                    bool opened = false;
+                    try { using (var p = new ExcelPackage()) { p.Load(new MemoryStream(bytes), "another"); opened = p.Workbook.Worksheets["Secret"] != null; } }
+                    catch (Exception) { }
+                    Assert.IsFalse(opened, what + ": opened with a wrong password");
+                }
+            }
+
+            // a file, and the byte array
+            string path = Path.Combine(Path.GetTempPath(), "orabooster-epplus-" + Guid.NewGuid().ToString("N") + ".xlsx");
+            try
+            {
+                using (var p = new ExcelPackage()) { fill(p); p.SaveAs(new FileInfo(path), "pw 2"); }
+                using (var p = new ExcelPackage(new FileInfo(path), "pw 2")) check(p, "file");
+                byte[] array;
+                using (var p = new ExcelPackage()) { fill(p); array = p.GetAsByteArray("pw 3"); }
+                using (var p = new ExcelPackage()) { p.Load(new MemoryStream(array), "pw 3"); check(p, "byte array"); }
+            }
+            finally { File.Delete(path); }
+        }
+
         // #32 (B6 of #8): the export direction of a range. A sheet with a header row and values of every kind.
         static ExcelWorksheet ExportSheet(ExcelPackage a_package)
         {
