@@ -163,6 +163,20 @@ static class Issues
             }
         }
 
+        // #35: encrypted workbooks, password "orabooster": standard and agile encryption. open-in-excel.ps1 opens the files whose
+        // names start with issue35_encrypted with that password; Excel must show 200 rows.
+        foreach (EncryptionVersion version in new[] { EncryptionVersion.Standard, EncryptionVersion.Agile })
+        {
+            using (var p = new ExcelPackage())
+            {
+                var ws = p.Workbook.Worksheets.Add("Secret");
+                for (int r = 1; r <= 200; r++) for (int c = 1; c <= 6; c++) ws.Cells[r, c].Value = c == 1 ? (object)("row " + r) : r * c;
+                ws.Tables.Add(ws.Cells["A1:F200"], "SecretTable").ShowHeader = false;
+                p.Encryption.Version = version;
+                p.SaveAs(new FileInfo(Path.Combine(a_dir, "issue35_encrypted_" + version.ToString().ToLowerInvariant() + ".xlsx")), "orabooster");
+            }
+        }
+
         // #32: the export of a range. One sheet is written as issue32_export.xlsx and its range as .csv (UTF-8 with a byte order
         // mark, for Excel), .json and .html. Opened in Excel, the csv must show the same cells as the xlsx (text with a comma,
         // a quote and a line break in one cell each, 00123 as text, numbers, a date, Korean).
