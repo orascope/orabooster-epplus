@@ -160,7 +160,7 @@ namespace OfficeOpenXml.Drawing.Chart
            {
                throw (new InvalidOperationException("Can't add a serie to a pivotchart"));
            }
-           return AddSeries(Serie.FullAddressAbsolute, XSerie.FullAddressAbsolute,"");
+           return AddSeries(Serie.FullAddressAbsolute, XSerie == null ? null : XSerie.FullAddressAbsolute,""); // orabooster-epplus: no X range (issue #27)
        }
        /// <summary>
        /// Add a new serie to the chart.Do not apply to pivotcharts.
@@ -196,18 +196,23 @@ namespace OfficeOpenXml.Drawing.Chart
                 }
                int idx = FindIndex();
                ser.InnerXml = string.Format("<c:idx val=\"{1}\" /><c:order val=\"{1}\" /><c:tx><c:strRef><c:f></c:f><c:strCache><c:ptCount val=\"1\" /></c:strCache></c:strRef></c:tx>{5}{0}{2}{3}{4}", AddExplosion(Chart.ChartType), idx, AddScatterPoint(Chart.ChartType), AddAxisNodes(Chart.ChartType), AddSmooth(Chart.ChartType), AddMarker(Chart.ChartType, _list.Count)); // orabooster-epplus: the position in this chart, not idx: they differ when chart types are combined (issue #11)
+               // orabooster-epplus (issue #27): a series with no X range (null or ""). null made the XSeries setter throw after the
+               // series was in the chart XML and before it was in the list, so a half-made series was saved. "" wrote a reference
+               // with no address ('Sheet'!) as the categories. Now neither writes anything: the series has no c:cat (c:xVal).
+               bool hasX = !string.IsNullOrEmpty(XSeriesAddress);
                ExcelChartSerie serie;
                switch (Chart.ChartType)
                {
                    case eChartType.Bubble:
                    case eChartType.Bubble3DEffect:
-                       serie = new ExcelBubbleChartSerie(this, NameSpaceManager, ser, _isPivot)
+                       var bubble = new ExcelBubbleChartSerie(this, NameSpaceManager, ser, _isPivot)
                        {
                            Bubble3D=Chart.ChartType==eChartType.Bubble3DEffect,
-                           Series = SeriesAddress,
-                           XSeries = XSeriesAddress,
-                           BubbleSize = bubbleSizeAddress                            
+                           Series = SeriesAddress
                        };
+                       if (hasX) bubble.XSeries = XSeriesAddress;
+                       bubble.BubbleSize = bubbleSizeAddress;
+                       serie = bubble;
                        break;
                    case eChartType.XYScatter:
                    case eChartType.XYScatterLines:
@@ -293,7 +298,16 @@ namespace OfficeOpenXml.Drawing.Chart
                        break;
                }               
                serie.Series = SeriesAddress;
-               serie.XSeries = XSeriesAddress;                     
+               if (hasX)
+               {
+                   serie.XSeries = XSeriesAddress;
+               }
+               else
+               {
+                   // orabooster-epplus (issue #27): the empty c:xVal of a new scatter or bubble series is not valid on its own
+                   XmlNode emptyX = ser.SelectSingleNode("c:xVal", _ns);
+                   if (emptyX != null && !emptyX.HasChildNodes) ser.RemoveChild(emptyX);
+               }
            _list.Add(serie);
                return serie;
         }

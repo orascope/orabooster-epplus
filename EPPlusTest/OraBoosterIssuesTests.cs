@@ -671,6 +671,56 @@ namespace EPPlusTest
             }
         }
 
+        // #27: a series with no X range. null threw after the series was in the chart XML (a half-made series was saved), and ""
+        // wrote the reference 'S'! as the categories. Both add a series that has no c:cat (c:xVal), for every kind of chart.
+        [TestMethod]
+        public void Series_without_an_x_range_has_no_category_element()
+        {
+            foreach (var type in new[] { eChartType.Line, eChartType.ColumnClustered, eChartType.Pie, eChartType.XYScatter, eChartType.Bubble, eChartType.StockHLC, eChartType.StockVHLC })
+            {
+                foreach (string x in new string[] { null, "" })
+                {
+                    string what = type + (x == null ? " null" : " empty");
+                    using (var p = new ExcelPackage())
+                    {
+                        var ws = p.Workbook.Worksheets.Add("S");
+                        for (int r = 1; r <= 6; r++) for (int c = 1; c <= 5; c++) ws.Cells[r, c].Value = r == 1 ? (object)("H" + c) : r * c;
+                        var chart = ws.Drawings.AddChart("C1", type);
+                        int n = type == eChartType.StockVHLC ? 4 : type == eChartType.StockHLC ? 3 : type == eChartType.Pie ? 1 : 2;
+                        for (int c = 1; c <= n; c++)
+                        {
+                            string v = ExcelCellBase.GetAddress(2, c, 6, c);
+                            ExcelChartSerie s = type == eChartType.Bubble ? ((ExcelBubbleChart)chart).Series.Add(v, x, v) : chart.Series.Add(v, x);
+                            Assert.AreEqual("", s.XSeries, what);
+                        }
+                        Assert.AreEqual(n, chart.PlotArea.ChartTypes.Sum(t => t.Series.Count), what);
+
+                        XmlElement space = SavedSheet(p, "xl/charts/chart1.xml");
+                        var ns = new XmlNamespaceManager(space.OwnerDocument.NameTable);
+                        ns.AddNamespace("c", "http://schemas.openxmlformats.org/drawingml/2006/chart");
+                        Assert.AreEqual(n, space.SelectNodes("//c:ser", ns).Count, what);
+                        Assert.AreEqual(0, space.SelectNodes("//c:ser/c:cat|//c:ser/c:xVal", ns).Count, what);
+                        Assert.AreEqual(n, space.SelectNodes("//c:ser/c:val/c:numRef/c:f|//c:ser/c:yVal/c:numRef/c:f", ns).Count, what);
+                    }
+                }
+            }
+
+            // a range that is null, and a series with an X range next to one without
+            using (var p = new ExcelPackage())
+            {
+                var ws = p.Workbook.Worksheets.Add("S");
+                for (int r = 1; r <= 6; r++) for (int c = 1; c <= 3; c++) ws.Cells[r, c].Value = r * c;
+                var chart = ws.Drawings.AddChart("C1", eChartType.Line);
+                Assert.AreEqual("", chart.Series.Add(ws.Cells["B2:B6"], null).XSeries);
+                Assert.AreEqual("'S'!$A$2:$A$6", chart.Series.Add(ws.Cells["C2:C6"], ws.Cells["A2:A6"]).XSeries);
+                XmlElement space = SavedSheet(p, "xl/charts/chart1.xml");
+                var ns = new XmlNamespaceManager(space.OwnerDocument.NameTable);
+                ns.AddNamespace("c", "http://schemas.openxmlformats.org/drawingml/2006/chart");
+                Assert.AreEqual(2, space.SelectNodes("//c:ser", ns).Count);
+                Assert.AreEqual(1, space.SelectNodes("//c:ser/c:cat", ns).Count);
+            }
+        }
+
         // #23: the offsets of a relative R1C1 reference are written with the invariant culture. In a culture whose minus sign is
         // U+2212 on .NET 5 and later (sv-SE, nb-NO, fi-FI) FormulaR1C1 returned R[−1]C[−5], which the library itself could not read back.
         [TestMethod]

@@ -1,5 +1,15 @@
 # Changes in orabooster-epplus
 
+## 4.5.3.8-ora.4 (not released yet, OraScope Co.,Ltd.)
+
+- **#27** A chart series with no X range.
+  - `chart.Series.Add(values, null)` threw a `NullReferenceException` in the `XSeries` setter, after the series was in the chart XML and before it was in the collection: `Series.Count` did not have it, but the saved workbook had a half-made series. `Series.Add(values, "")` did not throw, but wrote a reference with no address (`'Sheet'!`) as the categories.
+  - Both now add a series with no `c:cat` (no `c:xVal` on a scatter or bubble chart, whose empty `c:xVal` is taken out). Excel numbers the points 1, 2, 3. The same for `Add(ExcelRangeBase, null)` and for the series of a stock chart with volume.
+  - `EPPlus/Drawing/Chart/ExcelChartSeries.cs` (`AddSeries`, `Add`).
+  - **What a caller of ora.3 can see differently:** a series added with `""` as the X range has no `c:cat` with `'Sheet'!` in the saved chart, and `serie.XSeries` is `""` instead of `'Sheet'!`. Nothing else: `SaveBench charts`, `variety`, `keep` and the eleven issue samples that were there before are part by part the same.
+  - Checked in Excel 16: `issue27_no_x_range.xlsx` of `SaveBench issues` (line, column, pie, scatter, bubble, stock and stock with volume, each with `null` and with `""`) opens without a repair, and every chart has all its series.
+  - Tests: 1 new (`Series_without_an_x_range_has_no_category_element`). Whole suite: 1,201 passed, 0 failed, 214 skipped.
+
 ## 4.5.3.8-ora.3 (2026-11-25, OraScope Co.,Ltd.)
 
 New features, taken one at a time from the candidate list in #8, and the bugs found on the way. The features are written from ECMA-376 and the Microsoft Open Specifications and checked against Excel.

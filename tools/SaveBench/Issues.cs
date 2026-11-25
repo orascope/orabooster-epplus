@@ -163,6 +163,30 @@ static class Issues
             }
         }
 
+        // #27: series with no X range (null and ""), one sheet for each kind of chart. open-in-excel.ps1 must show every series.
+        using (var p = new ExcelPackage())
+        {
+            foreach (var type in new[] { eChartType.Line, eChartType.ColumnClustered, eChartType.Pie, eChartType.XYScatter, eChartType.Bubble, eChartType.StockHLC, eChartType.StockVHLC })
+            {
+                var ws = p.Workbook.Worksheets.Add(type.ToString());
+                for (int r = 1; r <= 6; r++) for (int c = 1; c <= 5; c++) ws.Cells[r, c].Value = r == 1 ? (object)("H" + c) : c == 1 ? r * 100 : c == 3 ? 5 + r : c == 2 ? 9 + r : 7 + r;
+                int n = type == eChartType.StockVHLC ? 4 : type == eChartType.StockHLC ? 3 : type == eChartType.Pie ? 1 : 2;
+                int row = 0;
+                foreach (string x in new string[] { null, "" })
+                {
+                    var chart = ws.Drawings.AddChart(type + (x == null ? "Null" : "Empty"), type);
+                    for (int c = 1; c <= n; c++)
+                    {
+                        string v = ExcelCellBase.GetAddress(2, c, 6, c);
+                        if (type == eChartType.Bubble) ((ExcelBubbleChart)chart).Series.Add(v, x, v); else chart.Series.Add(v, x);
+                    }
+                    chart.SetPosition(row, 0, 7, 0); chart.SetSize(380, 240);
+                    row += 14;
+                }
+            }
+            p.SaveAs(new FileInfo(Path.Combine(a_dir, "issue27_no_x_range.xlsx")));
+        }
+
         // #21: the chart types of Excel 2016, all on one sheet, in the order of eChartExType. open-in-excel.ps1 prints the type
         // Excel gives each: 119 waterfall, 117 treemap, 120 sunburst, 118 histogram, 122 Pareto, 121 box and whisker, 123 funnel.
         using (var p = new ExcelPackage())
