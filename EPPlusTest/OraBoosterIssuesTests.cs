@@ -671,6 +671,175 @@ namespace EPPlusTest
             }
         }
 
+        // #34 (B5 of #8): saving and loading with asynchronous input and output.
+        // A stream like the response of a web server that does not allow synchronous input and output: every synchronous read,
+        // write and flush throws.
+        sealed class AsyncOnlyStream : Stream
+        {
+            readonly MemoryStream _inner = new MemoryStream();
+            public byte[] ToArray() { return _inner.ToArray(); }
+            public override bool CanRead { get { return true; } }
+            public override bool CanSeek { get { return true; } }
+            public override bool CanWrite { get { return true; } }
+            public override long Length { get { return _inner.Length; } }
+            public override long Position { get { return _inner.Position; } set { _inner.Position = value; } }
+            public override long Seek(long offset, SeekOrigin origin) { return _inner.Seek(offset, origin); }
+            public override void SetLength(long value) { _inner.SetLength(value); }
+            public override void Flush() { throw new NotSupportedException("synchronous flush"); }
+            public override int Read(byte[] buffer, int offset, int count) { throw new NotSupportedException("synchronous read"); }
+            public override void Write(byte[] buffer, int offset, int count) { throw new NotSupportedException("synchronous write"); }
+            public override System.Threading.Tasks.Task FlushAsync(System.Threading.CancellationToken cancellationToken) { return _inner.FlushAsync(cancellationToken); }
+            public override System.Threading.Tasks.Task<int> ReadAsync(byte[] buffer, int offset, int count, System.Threading.CancellationToken cancellationToken) { return _inner.ReadAsync(buffer, offset, count, cancellationToken); }
+            public override System.Threading.Tasks.Task WriteAsync(byte[] buffer, int offset, int count, System.Threading.CancellationToken cancellationToken) { return _inner.WriteAsync(buffer, offset, count, cancellationToken); }
+        }
+
+        static ExcelPackage AsyncSample(Stream a_over = null)
+        {
+            var p = a_over == null ? new ExcelPackage() : new ExcelPackage(a_over);
+            var ws = p.Workbook.Worksheets.Add("Async");
+            for (int r = 1; r <= 40; r++) for (int c = 1; c <= 6; c++) ws.Cells[r, c].Value = r == 1 ? (object)("H" + c) : c == 1 ? (object)("row " + r) : r * c;
+            ws.Tables.Add(ws.Cells["A1:F40"], "Numbers");
+            ws.Cells["H2"].Formula = "SUM(B2:B40)";
+            ws.Cells["A1:F1"].Style.Font.Bold = true;
+            return p;
+        }
+
+        // the parts of a package, "name: content" in the order of the names
+        static string[] PartsOf(byte[] a_package)
+        {
+            using (var zip = new System.IO.Compression.ZipArchive(new MemoryStream(a_package)))
+            {
+                return zip.Entries.OrderBy(e => e.FullName, StringComparer.Ordinal).Select(e =>
+                {
+                    using (var s = e.Open()) using (var m = new MemoryStream()) { s.CopyTo(m); return e.FullName + ": " + Convert.ToBase64String(m.ToArray()); }
+                }).ToArray();
+            }
+        }
+
+        [TestMethod]
+        public async System.Threading.Tasks.Task Async_save_and_load_use_no_synchronous_input_or_output()
+        {
+            byte[] sync;
+            using (var p = AsyncSample()) { var ms = new MemoryStream(); p.SaveAs(ms); sync = ms.ToArray(); }
+
+            var target = new AsyncOnlyStream();
+            using (var p = AsyncSample()) await p.SaveAsAsync(target);
+            CollectionAssert.AreEqual(PartsOf(sync), PartsOf(target.ToArray())); // the same package, part by part
+            // the synchronous methods cannot use such a stream
+            using (var p = AsyncSample()) Assert.ThrowsException<NotSupportedException>(() => p.SaveAs(new AsyncOnlyStream()));
+
+            using (var p = new ExcelPackage())
+            {
+                await p.LoadAsync(target);
+                var ws = p.Workbook.Worksheets["Async"];
+                Assert.AreEqual("row 40", ws.Cells["A40"].Value);
+                Assert.AreEqual(240d, ws.Cells["F40"].Value);
+                Assert.AreEqual("SUM(B2:B40)", ws.Cells["H2"].Formula);
+                Assert.AreEqual(1, ws.Tables.Count);
+            }
+            using (var p = new ExcelPackage()) Assert.ThrowsException<NotSupportedException>(() => p.Load(target));
+
+            // with a password: the package is encrypted, and loaded with the password only
+            var secret = new AsyncOnlyStream();
+            using (var p = AsyncSample()) await p.SaveAsAsync(secret, "pw 1");
+            Assert.AreNotEqual((byte)'P', secret.ToArray()[0]); // not a zip
+            using (var p = new ExcelPackage())
+            {
+                await p.LoadAsync(secret, "pw 1");
+                Assert.AreEqual("row 2", p.Workbook.Worksheets["Async"].Cells["A2"].Value);
+            }
+
+            // a package made over a stream of the caller: SaveAsync writes to that stream, asynchronously
+            var own = new AsyncOnlyStream();
+            using (var p = AsyncSample(own)) await p.SaveAsync();
+            CollectionAssert.AreEqual(PartsOf(sync), PartsOf(own.ToArray()));
+            // and SaveAsAsync to another stream writes both, as SaveAs does
+            var own2 = new AsyncOnlyStream(); var other = new AsyncOnlyStream();
+            using (var p = AsyncSample(own2)) await p.SaveAsAsync(other);
+            CollectionAssert.AreEqual(PartsOf(sync), PartsOf(own2.ToArray()));
+            CollectionAssert.AreEqual(PartsOf(sync), PartsOf(other.ToArray()));
+
+            // with no file and no stream the package is only made: it can be read from Stream, as after Save()
+            using (var p = AsyncSample())
+            {
+                await p.SaveAsync();
+                CollectionAssert.AreEqual(PartsOf(sync), PartsOf(((MemoryStream)p.Stream).ToArray()));
+            }
+        }
+
+        [TestMethod]
+        public async System.Threading.Tasks.Task Async_save_and_load_of_a_file()
+        {
+            string dir = Path.Combine(Path.GetTempPath(), "orabooster-epplus-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            try
+            {
+                byte[] sync;
+                using (var p = AsyncSample()) { var ms = new MemoryStream(); p.SaveAs(ms); sync = ms.ToArray(); }
+
+                var file = new FileInfo(Path.Combine(dir, "async.xlsx"));
+                using (var p = AsyncSample()) await p.SaveAsAsync(file);
+                CollectionAssert.AreEqual(PartsOf(sync), PartsOf(File.ReadAllBytes(file.FullName)));
+
+                // load the file, change it, save it back to the same file
+                using (var p = new ExcelPackage())
+                {
+                    await p.LoadAsync(file);
+                    Assert.AreEqual(file.FullName, p.File.FullName);
+                    p.Workbook.Worksheets["Async"].Cells["J1"].Value = "changed";
+                    await p.SaveAsync();
+                }
+                using (var p = new ExcelPackage(file)) Assert.AreEqual("changed", p.Workbook.Worksheets["Async"].Cells["J1"].Value);
+
+                // an encrypted file
+                var secret = new FileInfo(Path.Combine(dir, "secret.xlsx"));
+                using (var p = AsyncSample()) await p.SaveAsAsync(secret, "pw 2");
+                using (var p = new ExcelPackage(secret, "pw 2")) Assert.AreEqual("row 3", p.Workbook.Worksheets["Async"].Cells["A3"].Value);
+                using (var p = new ExcelPackage())
+                {
+                    await p.LoadAsync(secret, "pw 2");
+                    Assert.AreEqual("row 3", p.Workbook.Worksheets["Async"].Cells["A3"].Value);
+                }
+
+                // a file that cannot be written: the same exception as Save()
+                var bad = new FileInfo(Path.Combine(dir, "no such folder", "x.xlsx"));
+                using (var p = AsyncSample())
+                {
+                    var ex = await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => p.SaveAsAsync(bad));
+                    StringAssert.Contains(ex.Message, "Error saving file");
+                }
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [TestMethod]
+        public async System.Threading.Tasks.Task Async_save_and_load_stop_when_cancelled()
+        {
+            var cts = new System.Threading.CancellationTokenSource();
+            cts.Cancel();
+            var target = new AsyncOnlyStream();
+            using (var p = AsyncSample())
+            {
+                await Assert.ThrowsExceptionAsync<OperationCanceledException>(() => p.SaveAsAsync(target, cts.Token));
+                Assert.AreEqual(0, target.Length);
+                // nothing was made: the package can still be saved
+                await p.SaveAsAsync(target);
+                Assert.IsTrue(target.Length > 0);
+            }
+            using (var p = new ExcelPackage())
+            {
+                await Assert.ThrowsExceptionAsync<OperationCanceledException>(() => p.LoadAsync(target, cts.Token));
+                await p.LoadAsync(target);
+                Assert.AreEqual("row 5", p.Workbook.Worksheets["Async"].Cells["A5"].Value);
+            }
+            string path = Path.Combine(Path.GetTempPath(), "orabooster-epplus-" + Guid.NewGuid().ToString("N") + ".xlsx");
+            using (var p = AsyncSample())
+            {
+                await Assert.ThrowsExceptionAsync<OperationCanceledException>(() => p.SaveAsAsync(new FileInfo(path), cts.Token));
+                Assert.IsFalse(File.Exists(path));
+            }
+        }
+
         // #35: an encrypted workbook is loaded again. The decryption read a CryptoStream with one call; since .NET 6 that call can
         // give fewer bytes than asked for, the package was cut short and no encrypted workbook could be opened.
         // The tests of Encrypt.cs are all [Ignore] (they need files), so nothing showed it.

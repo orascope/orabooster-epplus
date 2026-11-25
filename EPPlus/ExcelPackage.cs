@@ -173,7 +173,8 @@ namespace OfficeOpenXml
     /// More samples can be found at  <a href="https://github.com/JanKallman/EPPlus/">https://github.com/JanKallman/EPPlus/</a>
     /// </example>
     /// </remarks>
-	public sealed class ExcelPackage : IDisposable
+	// orabooster-epplus: partial, for ExcelPackage.Async.cs (item B5 of issue #8: SaveAsync, SaveAsAsync, LoadAsync)
+	public sealed partial class ExcelPackage : IDisposable
 	{
         internal const bool preserveWhitespace=false;
         Stream _stream = null;
