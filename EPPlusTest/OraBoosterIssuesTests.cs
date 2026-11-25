@@ -671,6 +671,90 @@ namespace EPPlusTest
             }
         }
 
+        // #29: a loaded scatter chart has the type it was made with. XYScatter (markers, no line) came back as XYScatterLinesNoMarkers,
+        // so a series added to the loaded chart was written as a line with no markers.
+        [TestMethod]
+        public void Loaded_scatter_chart_has_the_type_it_was_made_with()
+        {
+            Func<XmlNode, XmlNamespaceManager, string> look = (ser, ns) =>
+                "line " + (ser.SelectSingleNode("c:spPr/a:ln/a:noFill", ns) == null ? "yes" : "no") +
+                ", marker " + (ser.SelectSingleNode("c:marker/c:symbol/@val", ns)?.Value ?? "auto") +
+                ", smooth " + (ser.SelectSingleNode("c:smooth/@val", ns)?.Value ?? "-");
+            foreach (var type in new[] { eChartType.XYScatter, eChartType.XYScatterLines, eChartType.XYScatterLinesNoMarkers, eChartType.XYScatterSmooth, eChartType.XYScatterSmoothNoMarkers })
+            {
+                var ms = new MemoryStream();
+                using (var p = new ExcelPackage())
+                {
+                    var ws = p.Workbook.Worksheets.Add("S");
+                    for (int r = 1; r <= 6; r++) for (int c = 1; c <= 4; c++) ws.Cells[r, c].Value = r * c;
+                    var chart = ws.Drawings.AddChart("C1", type);
+                    chart.Series.Add("B2:B6", "A2:A6");
+                    chart.Series.Add("C2:C6", "A2:A6");
+                    p.SaveAs(ms);
+                }
+                ms.Position = 0;
+                using (var p = new ExcelPackage(ms))
+                {
+                    var chart = (ExcelChart)p.Workbook.Worksheets["S"].Drawings["C1"];
+                    Assert.IsInstanceOfType(chart, typeof(ExcelScatterChart), type.ToString());
+                    Assert.AreEqual(type, chart.ChartType, type.ToString());
+
+                    // a series added to the loaded chart looks like the ones that were there
+                    chart.Series.Add("D2:D6", "A2:A6");
+                    XmlElement space = SavedSheet(p, "xl/charts/chart1.xml");
+                    var ns = new XmlNamespaceManager(space.OwnerDocument.NameTable);
+                    ns.AddNamespace("c", "http://schemas.openxmlformats.org/drawingml/2006/chart");
+                    ns.AddNamespace("a", "http://schemas.openxmlformats.org/drawingml/2006/main");
+                    XmlNodeList sers = space.SelectNodes("//c:scatterChart/c:ser", ns);
+                    Assert.AreEqual(3, sers.Count, type.ToString());
+                    Assert.AreEqual(look(sers[0], ns), look(sers[2], ns), type.ToString());
+                    bool smooth = type == eChartType.XYScatterSmooth || type == eChartType.XYScatterSmoothNoMarkers;
+                    Assert.AreEqual(smooth ? "smoothMarker" : "lineMarker", space.SelectSingleNode("//c:scatterChart/c:scatterStyle/@val", ns).Value, type.ToString());
+                }
+            }
+
+            // what Excel writes for lines with markers it picks itself: no c:marker element. That is not "no markers".
+            foreach (var type in new[] { eChartType.XYScatterLines, eChartType.XYScatterSmooth })
+            {
+                var ms = new MemoryStream();
+                using (var p = new ExcelPackage())
+                {
+                    var ws = p.Workbook.Worksheets.Add("S");
+                    for (int r = 1; r <= 6; r++) for (int c = 1; c <= 2; c++) ws.Cells[r, c].Value = r * c;
+                    var chart = ws.Drawings.AddChart("C1", type);
+                    chart.Series.Add("B2:B6", "A2:A6");
+                    var ns = new XmlNamespaceManager(chart.ChartXml.NameTable);
+                    ns.AddNamespace("c", "http://schemas.openxmlformats.org/drawingml/2006/chart");
+                    XmlNode marker = chart.ChartXml.SelectSingleNode("//c:ser/c:marker", ns);
+                    Assert.IsNotNull(marker, type.ToString());
+                    marker.ParentNode.RemoveChild(marker);
+                    p.SaveAs(ms);
+                }
+                ms.Position = 0;
+                using (var p = new ExcelPackage(ms))
+                {
+                    Assert.AreEqual(type, ((ExcelChart)p.Workbook.Worksheets["S"].Drawings["C1"]).ChartType, type + " with no c:marker");
+                }
+            }
+
+            // a scatter chart with no series loads (it threw on Series[0])
+            {
+                var ms = new MemoryStream();
+                using (var p = new ExcelPackage())
+                {
+                    p.Workbook.Worksheets.Add("S").Drawings.AddChart("C1", eChartType.XYScatterLines);
+                    p.SaveAs(ms);
+                }
+                ms.Position = 0;
+                using (var p = new ExcelPackage(ms))
+                {
+                    var chart = (ExcelChart)p.Workbook.Worksheets["S"].Drawings["C1"];
+                    Assert.AreEqual(eChartType.XYScatterLines, chart.ChartType);
+                    Assert.AreEqual(0, chart.Series.Count);
+                }
+            }
+        }
+
         // #27: a series with no X range. null threw after the series was in the chart XML (a half-made series was saved), and ""
         // wrote the reference 'S'! as the categories. Both add a series that has no c:cat (c:xVal), for every kind of chart.
         [TestMethod]

@@ -133,34 +133,28 @@ namespace OfficeOpenXml.Drawing.Chart
         {
             if (name == "scatterChart")
             {
+                // orabooster-epplus (issue #29): the type of a loaded scatter chart, from its first series.
+                //  - A chart made as XYScatter (markers, no line) came back as XYScatterLinesNoMarkers: its series has no c:marker
+                //    element, and the Marker property reads that as "none". With no c:marker Excel draws markers; only
+                //    <c:symbol val="none"/> turns them off.
+                //  - The test for "no line" looked for c:ser/c:spPr/a:ln/noFill from the drawing node: a path with no prefix on
+                //    noFill, under a node that has no c:ser. It never matched.
+                //  - A scatter chart with no series threw (Series[0]).
+                XmlNode ser = _chartNode.SelectSingleNode("c:ser", NameSpaceManager);
+                bool noLine = ser != null && ser.SelectSingleNode("c:spPr/a:ln/a:noFill", NameSpaceManager) != null;
+                XmlNode symbol = ser == null ? null : ser.SelectSingleNode("c:marker/c:symbol/@val", NameSpaceManager);
+                bool noMarker = symbol != null && symbol.Value == "none";
                 if (ScatterStyle==eScatterStyle.LineMarker)
                 {
-                    if (((ExcelScatterChartSerie)Series[0]).Marker == eMarkerStyle.None)
+                    if (noLine)
                     {
-                        return eChartType.XYScatterLinesNoMarkers;
+                        return eChartType.XYScatter;
                     }
-                    else
-                    {
-                        if(ExistNode("c:ser/c:spPr/a:ln/noFill"))
-                        {
-                            return eChartType.XYScatter;
-                        }
-                        else
-                        {
-                            return eChartType.XYScatterLines;
-                        }
-                    }
+                    return noMarker ? eChartType.XYScatterLinesNoMarkers : eChartType.XYScatterLines;
                 }
                 else if (ScatterStyle == eScatterStyle.SmoothMarker)
                 {
-                    if (((ExcelScatterChartSerie)Series[0]).Marker == eMarkerStyle.None)
-                    {
-                        return eChartType.XYScatterSmoothNoMarkers;
-                    }
-                    else
-                    {
-                        return eChartType.XYScatterSmooth;
-                    }
+                    return noMarker ? eChartType.XYScatterSmoothNoMarkers : eChartType.XYScatterSmooth;
                 }
             }
             return base.GetChartType(name);
