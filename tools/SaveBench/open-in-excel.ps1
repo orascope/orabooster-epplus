@@ -48,6 +48,18 @@ try {
                     "  {0} check {1}: fails={2} ignored={3}" -f $c[0], $c[1], $e.Value, $e.Ignore
                 }
             }
+            if ($f.Name -eq 'issue27_no_x_range.xlsx') {
+                # one sheet for each kind of chart, two charts on each (X range null and ""): the type and the number of series
+                for ($s = 1; $s -le $wb.Worksheets.Count; $s++) {
+                    $sheet = $wb.Worksheets.Item($s)
+                    $parts = @()
+                    for ($i = 1; $i -le $sheet.ChartObjects().Count; $i++) {
+                        $ch = $sheet.ChartObjects($i).Chart
+                        $parts += "type $($ch.ChartType) series $($ch.SeriesCollection().Count)"
+                    }
+                    "  sheet {0}: {1}" -f $sheet.Name, ($parts -join ' | ')
+                }
+            }
             $wb.Close($false)
         } catch {
             $failed++
