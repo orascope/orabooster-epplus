@@ -48,14 +48,22 @@ try {
                     "  {0} check {1}: fails={2} ignored={3}" -f $c[0], $c[1], $e.Value, $e.Ignore
                 }
             }
-            if ($f.Name -eq 'issue27_no_x_range.xlsx') {
-                # one sheet for each kind of chart, two charts on each (X range null and ""): the type and the number of series
+            if ($f.Name -eq 'issue27_no_x_range.xlsx' -or $f.Name -eq 'issue29_scatter_loaded.xlsx') {
+                # one sheet for each kind of chart: the type and the number of series of every chart on it
+                # (issue 27: two charts, X range null and ""; issue 29: one loaded scatter chart with a series added)
                 for ($s = 1; $s -le $wb.Worksheets.Count; $s++) {
                     $sheet = $wb.Worksheets.Item($s)
                     $parts = @()
                     for ($i = 1; $i -le $sheet.ChartObjects().Count; $i++) {
                         $ch = $sheet.ChartObjects($i).Chart
-                        $parts += "type $($ch.ChartType) series $($ch.SeriesCollection().Count)"
+                        $part = "type $($ch.ChartType) series $($ch.SeriesCollection().Count)"
+                        if ($f.Name -eq 'issue29_scatter_loaded.xlsx') {
+                            # per series: the chart type Excel gives it (the added third series must have the type of the first two)
+                            $each = @()
+                            for ($k = 1; $k -le $ch.SeriesCollection().Count; $k++) { $each += $ch.SeriesCollection($k).ChartType }
+                            $part += " [each: " + ($each -join ', ') + "]"
+                        }
+                        $parts += $part
                     }
                     "  sheet {0}: {1}" -f $sheet.Name, ($parts -join ' | ')
                 }

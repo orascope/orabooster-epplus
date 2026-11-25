@@ -163,6 +163,32 @@ static class Issues
             }
         }
 
+        // #29: the five scatter types, one sheet each. The workbook is saved to memory and loaded, and each loaded chart gets a third
+        // series. open-in-excel.ps1 must show 3 series and the types -4169, 74, 75, 72, 73; in Excel the third series looks like
+        // the first two (before the fix the third series of the first sheet was a line with no markers).
+        {
+            var types = new[] { eChartType.XYScatter, eChartType.XYScatterLines, eChartType.XYScatterLinesNoMarkers, eChartType.XYScatterSmooth, eChartType.XYScatterSmoothNoMarkers };
+            var ms = new MemoryStream();
+            using (var p = new ExcelPackage())
+            {
+                foreach (var type in types)
+                {
+                    var ws = p.Workbook.Worksheets.Add(type.ToString());
+                    for (int r = 1; r <= 8; r++) for (int c = 1; c <= 4; c++) ws.Cells[r, c].Value = r == 1 ? (object)("H" + c) : c == 1 ? r : (r * c * 7) % 11 + c;
+                    var chart = ws.Drawings.AddChart("Scatter", type);
+                    chart.Series.Add("B2:B8", "A2:A8"); chart.Series.Add("C2:C8", "A2:A8");
+                    chart.SetPosition(1, 0, 6, 0); chart.SetSize(420, 260);
+                }
+                p.SaveAs(ms);
+            }
+            ms.Position = 0;
+            using (var p = new ExcelPackage(ms))
+            {
+                foreach (var type in types) ((ExcelChart)p.Workbook.Worksheets[type.ToString()].Drawings["Scatter"]).Series.Add("D2:D8", "A2:A8");
+                p.SaveAs(new FileInfo(Path.Combine(a_dir, "issue29_scatter_loaded.xlsx")));
+            }
+        }
+
         // #27: series with no X range (null and ""), one sheet for each kind of chart. open-in-excel.ps1 must show every series.
         using (var p = new ExcelPackage())
         {

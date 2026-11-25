@@ -9,6 +9,14 @@
   - **What a caller of ora.3 can see differently:** a series added with `""` as the X range has no `c:cat` with `'Sheet'!` in the saved chart, and `serie.XSeries` is `""` instead of `'Sheet'!`. Nothing else: `SaveBench charts`, `variety`, `keep` and the eleven issue samples that were there before are part by part the same.
   - Checked in Excel 16: `issue27_no_x_range.xlsx` of `SaveBench issues` (line, column, pie, scatter, bubble, stock and stock with volume, each with `null` and with `""`) opens without a repair, and every chart has all its series.
   - Tests: 1 new (`Series_without_an_x_range_has_no_category_element`). Whole suite: 1,201 passed, 0 failed, 214 skipped.
+- **#29** The chart type of a loaded scatter chart.
+  - A chart made as `XYScatter` (markers, no line) was read back as `XYScatterLinesNoMarkers`. The saved file was right (Excel gives it the type `xlXYScatter`), but a series added to the loaded chart was written for the wrong type: a line with no markers next to the marker series.
+  - Two causes in `ExcelScatterChart.GetChartType`: a series with no `c:marker` element was taken as "no markers" (Excel draws markers then; only `<c:symbol val="none"/>` turns them off), and the test for "no line" used a path that could not match (`noFill` with no prefix, from the drawing node). The type is now read from the first series of the chart: no line is `XYScatter`; a line with `symbol="none"` is the type with no markers; otherwise the type with markers.
+  - A loaded scatter chart with no series threw (`Series[0]`). It loads now.
+  - `EPPlus/Drawing/Chart/ExcelScatterChart.cs`.
+  - **What a caller of ora.3 can see differently:** `ChartType` of a loaded scatter chart is `XYScatter` where it was `XYScatterLinesNoMarkers` (a series with no line), and `XYScatterLines` or `XYScatterSmooth` where it was the type with no markers (a line and no `c:marker` element, as Excel writes a line with markers it picks itself). A series added to such a loaded chart is written for that type. What is saved for a chart that is not loaded is the same: `SaveBench charts`, `variety`, `keep` and the twelve issue samples that were there before are part by part the same.
+  - Checked in Excel 16: `issue29_scatter_loaded.xlsx` of `SaveBench issues` (the five scatter types, saved, loaded, a third series added) opens without a repair, with the types -4169, 74, 75, 72, 73, and Excel gives every series the type of its chart. Made with the library before the fix, the third series of the `XYScatter` sheet has the type 75. A workbook Excel made itself, one chart of each of the five types: all five are read with their type (before the fix Excel's `XYScatter` was read as `XYScatterLines`).
+  - Tests: 1 new (`Loaded_scatter_chart_has_the_type_it_was_made_with`). Whole suite: 1,202 passed, 0 failed, 214 skipped.
 
 ## 4.5.3.8-ora.3 (2026-11-25, OraScope Co.,Ltd.)
 

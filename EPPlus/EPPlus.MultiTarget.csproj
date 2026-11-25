@@ -23,6 +23,7 @@
     <PackageReleaseNotes>
 		4.5.3.8-ora.4
 		- A chart series added with no X range (null or "") no longer throws or writes a reference with no address (issue #27).
+		- A loaded XYScatter chart has its chart type (it was XYScatterLinesNoMarkers), so a series added to it has markers and no line (issue #29).
 
 		4.5.3.8-ora.3
 		- Ignored errors of a worksheet: ExcelWorksheet.IgnoredErrors (issue #9).
