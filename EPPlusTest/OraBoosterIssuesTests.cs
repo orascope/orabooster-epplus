@@ -1524,6 +1524,35 @@ namespace EPPlusTest
             Assert.AreEqual("4", anchors[0].SelectSingleNode("xdr:to/xdr:col", ns).InnerText);
         }
 
+        // #51: a hidden row has no height when a drawing is placed and sized, as in Excel (a hidden column already had no width).
+        [TestMethod]
+        public void Hidden_rows_have_no_height_for_a_drawing()
+        {
+            XmlNamespaceManager ns;
+            byte[] bytes;
+            using (var p = new ExcelPackage())
+            {
+                var ws = p.Workbook.Worksheets.Add("S");
+                for (int r = 2; r <= 6; r++) ws.Row(r).Hidden = true;   // rows 2 to 6 (zero based 1 to 5)
+                ws.Column(3).Hidden = true;
+                var tall = ws.Drawings.AddShape("Tall", eShapeStyle.Rect);
+                tall.SetPosition(0, 0, 0, 0);
+                tall.SetSize(64, 200);                                 // ten rows of 20 pixels that are shown
+                var below = ws.Drawings.AddShape("Below", eShapeStyle.Rect);
+                below.EditAs = OfficeOpenXml.Drawing.eEditAs.Absolute;
+                below.SetPosition(8, 0, 4, 0);
+                bytes = SavedBytes(p);
+            }
+            XmlElement drawing = PartOf(bytes, "xl/drawings/drawing1.xml", out ns);
+            ns.AddNamespace("xdr", "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing");
+            var anchors = drawing.SelectNodes("xdr:twoCellAnchor", ns).OfType<XmlElement>().ToList();
+            Assert.AreEqual("15", anchors[0].SelectSingleNode("xdr:to/xdr:row", ns).InnerText, "the five hidden rows take no height");
+            Assert.AreEqual("0", anchors[0].SelectSingleNode("xdr:to/xdr:rowOff", ns).InnerText);
+            // an absolute drawing below the hidden rows stays at its row on save (its position in pixels does not count them)
+            Assert.AreEqual("8", anchors[1].SelectSingleNode("xdr:from/xdr:row", ns).InnerText);
+            Assert.AreEqual("4", anchors[1].SelectSingleNode("xdr:from/xdr:col", ns).InnerText);
+        }
+
         // #34 (B5 of #8): saving and loading with asynchronous input and output.
         // A stream like the response of a web server that does not allow synchronous input and output: every synchronous read,
         // write and flush throws.

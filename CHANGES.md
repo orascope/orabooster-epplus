@@ -62,6 +62,9 @@ The B items of the candidate list in #8, taken one at a time. They only add: a w
   - Tests: 2 new (`Conditional_formats_of_a_file_keep_their_own_dxf`, `Conditional_format_added_to_a_file_with_no_dxfs`); both fail without the change. Whole suite: 1,218 passed, 0 failed, 214 skipped. The samples of `SaveBench issues` are part by part the same.
 - **#49** A drawing with `EditAs` `Absolute` went back to where it was made when the package was saved, whatever `SetPosition` said: before a save `AdjustPositionAndSize` puts such a drawing at the position it keeps, and `SetPosition` did not change that position. `EPPlus/Drawing/ExcelDrawingBase.cs`: `SetPosition` keeps the position it writes. Drawings with `TwoCell` (the default) and `OneCell` were not affected. Found with #48: Excel makes slicers absolute.
   - Tests: 1 new (`Absolute_drawing_is_saved_where_it_was_put`); it fails without the change. Whole suite: 1,222 passed, 0 failed, 214 skipped. The samples of `SaveBench issues` are part by part the same.
+- **#51** A drawing placed or sized over hidden rows counted them with their height; Excel gives a hidden row none, so the drawing was shorter in Excel than it was made. `EPPlus/Drawing/ExcelDrawingBase.cs`: `GetRowHeight` gives 0 for a hidden row, as `ExcelColumn.VisualWidth` already did for a hidden column. It showed most with an autofilter (#17), which hides rows on save, and with the table slicers of #48, which hide the rows under them.
+  - **What a caller can see differently:** a drawing over hidden rows ends lower in the sheet (`To.Row`), so that it has the size it was given when the rows are hidden.
+  - Tests: 1 new (`Hidden_rows_have_no_height_for_a_drawing`); it fails without the change. Whole suite: 1,223 passed, 0 failed, 214 skipped. The samples of `SaveBench issues` are part by part the same.
 
 ## 4.5.3.8-ora.4 (2026-11-25, OraScope Co.,Ltd.)
 
