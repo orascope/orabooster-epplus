@@ -367,6 +367,7 @@ namespace OfficeOpenXml.Table.PivotTable
             }
             set
             {
+                ClearAutoSort(); // orabooster-epplus (issue #56): by the labels; SetSort sorts by a data field
                 if (value == eSortType.None)
                 {
                     DeleteNode("@sortType");

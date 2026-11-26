@@ -72,7 +72,7 @@ namespace OfficeOpenXml.Table.PivotTable
         }
 
         /// <summary>The pivot tables of the workbook that have the same cache part as this one (this one among them).</summary>
-        static List<ExcelPivotTable> TablesOfCache(ExcelPivotTable pivotTable)
+        internal static List<ExcelPivotTable> TablesOfCache(ExcelPivotTable pivotTable)
         {
             var list = new List<ExcelPivotTable>();
             string uri = pivotTable.CacheDefinition.CacheDefinitionUri.OriginalString;
