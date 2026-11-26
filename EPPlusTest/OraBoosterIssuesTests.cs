@@ -1222,6 +1222,274 @@ namespace EPPlusTest
             Assert.AreEqual("greaterThan=0", CfDxfIds(saved));
         }
 
+        // #46 (B4 of #8): the options of a data bar that Excel 2010 and later have (the x14 part of the rule).
+        static XmlElement SheetWithX14(byte[] a_package, string a_entry, out XmlNamespaceManager a_ns)
+        {
+            XmlElement sheet = PartOf(a_package, a_entry, out a_ns);
+            a_ns.AddNamespace("x14", "http://schemas.microsoft.com/office/spreadsheetml/2009/9/main");
+            a_ns.AddNamespace("xm", "http://schemas.microsoft.com/office/excel/2006/main");
+            return sheet;
+        }
+
+        static ExcelPackage BarsPackage()
+        {
+            var p = new ExcelPackage();
+            var ws = p.Workbook.Worksheets.Add("Bars");
+            for (int r = 2; r <= 11; r++) { ws.Cells[r, 2].Value = r - 7; ws.Cells[r, 3].Value = r; }
+            return p;
+        }
+
+        [TestMethod]
+        public void Data_bar_options_of_Excel_2010_are_written_and_read()
+        {
+            XmlNamespaceManager ns;
+            byte[] plain, bytes;
+            using (var p = BarsPackage())
+            {
+                var ws = p.Workbook.Worksheets["Bars"];
+                var bar = ws.ConditionalFormatting.AddDatabar(ws.Cells["C2:C11"], System.Drawing.Color.FromArgb(0x63, 0x8E, 0xC6));
+                // a bar that sets no option is the one of Excel 2007: no x14 part, the defaults of the schema
+                Assert.IsFalse(bar.HasExcel2010Options);
+                Assert.AreEqual(OfficeOpenXml.ConditionalFormatting.eDataBarFillType.Gradient, bar.FillType);
+                Assert.IsFalse(bar.ShowBorder);
+                Assert.IsNull(bar.NegativeFillColor);
+                Assert.AreEqual(OfficeOpenXml.ConditionalFormatting.eDataBarAxisPosition.None, bar.AxisPosition, "as Excel shows a bar of Excel 2007");
+                Assert.AreEqual(OfficeOpenXml.ConditionalFormatting.eDataBarDirection.Context, bar.Direction);
+                Assert.AreEqual(10, bar.MinLength);
+                Assert.AreEqual(90, bar.MaxLength);
+                Assert.IsFalse(bar.HasExcel2010Options, "reading the options makes nothing");
+                // nor setting them to what they are
+                bar.FillType = OfficeOpenXml.ConditionalFormatting.eDataBarFillType.Gradient;
+                bar.ShowBorder = false;
+                bar.BorderColor = null;
+                bar.NegativeFillColor = null;
+                bar.NegativeBorderColor = null;
+                bar.AxisPosition = OfficeOpenXml.ConditionalFormatting.eDataBarAxisPosition.None;
+                bar.AxisColor = null;
+                bar.Direction = OfficeOpenXml.ConditionalFormatting.eDataBarDirection.Context;
+                bar.MinLength = 10;
+                bar.MaxLength = 90;
+                Assert.IsFalse(bar.HasExcel2010Options, "an option set to the value it has makes nothing");
+                plain = SavedBytes(p);
+            }
+            XmlElement sheet = SheetWithX14(plain, "xl/worksheets/sheet1.xml", out ns);
+            Assert.IsNull(sheet.SelectSingleNode("d:extLst", ns));
+            Assert.IsNull(sheet.SelectSingleNode("d:conditionalFormatting/d:cfRule/d:extLst", ns));
+
+            // one option set: the others keep the look of the bar of Excel 2007 (no axis, negative bars as the others)
+            using (var p = BarsPackage())
+            {
+                var ws = p.Workbook.Worksheets["Bars"];
+                var bar = ws.ConditionalFormatting.AddDatabar(ws.Cells["B2:B11"], System.Drawing.Color.Blue);
+                bar.Direction = OfficeOpenXml.ConditionalFormatting.eDataBarDirection.RightToLeft;
+                Assert.AreEqual(OfficeOpenXml.ConditionalFormatting.eDataBarAxisPosition.None, bar.AxisPosition);
+                Assert.IsNull(bar.NegativeFillColor);
+                Assert.AreEqual(OfficeOpenXml.ConditionalFormatting.eDataBarFillType.Gradient, bar.FillType);
+                var one = (XmlElement)SheetWithX14(SavedBytes(p), "xl/worksheets/sheet1.xml", out ns).SelectSingleNode("d:extLst/d:ext/x14:conditionalFormattings/x14:conditionalFormatting/x14:cfRule/x14:dataBar", ns);
+                CollectionAssert.AreEquivalent(new[] { "negativeBarColorSameAsPositive=1", "axisPosition=none", "direction=rightToLeft" },
+                    one.Attributes.Cast<XmlAttribute>().Select(a => a.Name + "=" + a.Value).ToArray());
+
+                // a second bar gets another id; the ids are not random, so the same workbook is saved with the same bytes
+                var second = ws.ConditionalFormatting.AddDatabar(ws.Cells["C2:C11"], System.Drawing.Color.Green);
+                second.ShowBorder = true;
+                byte[] a = SavedBytes(p), b = SavedBytes(p);
+                XmlElement s = SheetWithX14(a, "xl/worksheets/sheet1.xml", out ns);
+                var ids = s.SelectNodes("d:conditionalFormatting/d:cfRule/d:extLst/d:ext/x14:id", ns).OfType<XmlNode>().Select(n => n.InnerText).ToArray();
+                Assert.AreEqual(2, ids.Distinct().Count());
+                CollectionAssert.AreEqual(ids, s.SelectNodes("d:extLst/d:ext/x14:conditionalFormattings/x14:conditionalFormatting/x14:cfRule/@id", ns).OfType<XmlNode>().Select(n => n.Value).ToArray());
+                CollectionAssert.AreEqual(a, b);
+            }
+
+            using (var p = BarsPackage())
+            {
+                var ws = p.Workbook.Worksheets["Bars"];
+                var bar = ws.ConditionalFormatting.AddDatabar(ws.Cells["B2:B11"], System.Drawing.Color.FromArgb(0x00, 0x70, 0xC0));
+                bar.FillType = OfficeOpenXml.ConditionalFormatting.eDataBarFillType.Solid;
+                bar.ShowBorder = true;                                                  // the border takes the colour of the bar
+                bar.NegativeFillColor = System.Drawing.Color.FromArgb(0xFF, 0x00, 0x00);
+                bar.NegativeBorderColor = System.Drawing.Color.FromArgb(0x80, 0x00, 0x00);
+                bar.AxisPosition = OfficeOpenXml.ConditionalFormatting.eDataBarAxisPosition.Middle;
+                bar.AxisColor = System.Drawing.Color.FromArgb(0x80, 0x80, 0x80);
+                bar.Direction = OfficeOpenXml.ConditionalFormatting.eDataBarDirection.RightToLeft;
+                bar.MinLength = 0;
+                bar.MaxLength = 100;
+                Assert.IsTrue(bar.HasExcel2010Options);
+                Assert.ThrowsException<ArgumentOutOfRangeException>(() => bar.MaxLength = 101);
+                Assert.ThrowsException<ArgumentOutOfRangeException>(() => bar.MinLength = -1);
+                ws.ConditionalFormatting.AddDatabar(ws.Cells["C2:C11"], System.Drawing.Color.Blue); // one with no option beside it
+                bytes = SavedBytes(p);
+            }
+            sheet = SheetWithX14(bytes, "xl/worksheets/sheet1.xml", out ns);
+            var rules = sheet.SelectNodes("d:conditionalFormatting/d:cfRule", ns);
+            Assert.AreEqual(2, rules.Count);
+            XmlNode ruleExt = rules[0].SelectSingleNode("d:extLst/d:ext", ns);
+            Assert.AreEqual("{B025F937-C7B1-47D3-B67F-A62EFF666E3E}", ((XmlElement)ruleExt).GetAttribute("uri"));
+            string id = ruleExt.SelectSingleNode("x14:id", ns).InnerText;
+            StringAssert.Matches(id, new System.Text.RegularExpressions.Regex("^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$"));
+            Assert.IsNull(rules[1].SelectSingleNode("d:extLst", ns), "the other bar has no x14 part");
+            Assert.AreEqual("extLst", sheet.LastChild.LocalName);
+            var sheetExt = (XmlElement)sheet.SelectSingleNode("d:extLst/d:ext", ns);
+            Assert.AreEqual("{78C0D931-6437-407d-A8EE-F0AAD7539E65}", sheetExt.GetAttribute("uri"));
+            var formattings = sheetExt.SelectNodes("x14:conditionalFormattings/x14:conditionalFormatting", ns);
+            Assert.AreEqual(1, formattings.Count);
+            var x14Rule = (XmlElement)formattings[0].SelectSingleNode("x14:cfRule", ns);
+            Assert.AreEqual("dataBar", x14Rule.GetAttribute("type"));
+            Assert.AreEqual(id, x14Rule.GetAttribute("id"));
+            Assert.AreEqual("B2:B11", formattings[0].SelectSingleNode("xm:sqref", ns).InnerText);
+            var dataBar = (XmlElement)x14Rule.SelectSingleNode("x14:dataBar", ns);
+            Assert.AreEqual("0", dataBar.GetAttribute("gradient"));
+            Assert.AreEqual("1", dataBar.GetAttribute("border"));
+            Assert.AreEqual("rightToLeft", dataBar.GetAttribute("direction"));
+            Assert.AreEqual("middle", dataBar.GetAttribute("axisPosition"));
+            Assert.AreEqual("0", dataBar.GetAttribute("minLength"));
+            Assert.AreEqual("100", dataBar.GetAttribute("maxLength"));
+            Assert.IsFalse(dataBar.HasAttribute("negativeBarColorSameAsPositive"));
+            Assert.AreEqual("0", dataBar.GetAttribute("negativeBarBorderColorSameAsPositive"));
+            CollectionAssert.AreEqual(new[] { "cfvo:min", "cfvo:max", "borderColor:FF0070C0", "negativeFillColor:FFFF0000", "negativeBorderColor:FF800000", "axisColor:FF808080" },
+                dataBar.ChildNodes.OfType<XmlElement>().Select(e => e.LocalName + ":" + (e.LocalName == "cfvo" ? e.GetAttribute("type") : e.GetAttribute("rgb"))).ToArray());
+
+            using (var p = new ExcelPackage(new MemoryStream(bytes)))
+            {
+                var all = p.Workbook.Worksheets["Bars"].ConditionalFormatting;
+                var bar = (OfficeOpenXml.ConditionalFormatting.Contracts.IExcelConditionalFormattingDataBarGroup)all[0];
+                Assert.IsTrue(bar.HasExcel2010Options);
+                Assert.AreEqual(OfficeOpenXml.ConditionalFormatting.eDataBarFillType.Solid, bar.FillType);
+                Assert.IsTrue(bar.ShowBorder);
+                Assert.AreEqual(System.Drawing.Color.FromArgb(0x00, 0x70, 0xC0).ToArgb(), bar.BorderColor.Value.ToArgb());
+                Assert.AreEqual(System.Drawing.Color.FromArgb(0xFF, 0x00, 0x00).ToArgb(), bar.NegativeFillColor.Value.ToArgb());
+                Assert.AreEqual(System.Drawing.Color.FromArgb(0x80, 0x00, 0x00).ToArgb(), bar.NegativeBorderColor.Value.ToArgb());
+                Assert.AreEqual(OfficeOpenXml.ConditionalFormatting.eDataBarAxisPosition.Middle, bar.AxisPosition);
+                Assert.AreEqual(System.Drawing.Color.FromArgb(0x80, 0x80, 0x80).ToArgb(), bar.AxisColor.Value.ToArgb());
+                Assert.AreEqual(OfficeOpenXml.ConditionalFormatting.eDataBarDirection.RightToLeft, bar.Direction);
+                Assert.AreEqual(0, bar.MinLength);
+                Assert.AreEqual(100, bar.MaxLength);
+                Assert.IsFalse(((OfficeOpenXml.ConditionalFormatting.Contracts.IExcelConditionalFormattingDataBarGroup)all[1]).HasExcel2010Options);
+
+                // taken back: the negative colours follow the bar again, the axis is automatic
+                bar.NegativeFillColor = null;
+                bar.NegativeBorderColor = null;
+                bar.AxisPosition = OfficeOpenXml.ConditionalFormatting.eDataBarAxisPosition.Automatic;
+                bar.FillType = OfficeOpenXml.ConditionalFormatting.eDataBarFillType.Gradient;
+                byte[] back = SavedBytes(p);
+                var again = (XmlElement)SheetWithX14(back, "xl/worksheets/sheet1.xml", out ns).SelectSingleNode("d:extLst/d:ext/x14:conditionalFormattings/x14:conditionalFormatting/x14:cfRule/x14:dataBar", ns);
+                Assert.AreEqual("1", again.GetAttribute("negativeBarColorSameAsPositive"));
+                Assert.IsFalse(again.HasAttribute("negativeBarBorderColorSameAsPositive"));
+                Assert.IsFalse(again.HasAttribute("axisPosition"));
+                Assert.IsFalse(again.HasAttribute("gradient"));
+                Assert.IsNull(again.SelectSingleNode("x14:negativeFillColor", ns));
+                Assert.IsNull(again.SelectSingleNode("x14:negativeBorderColor", ns));
+            }
+        }
+
+        // The sheet of a data bar as Excel 2016 writes it (copied from a file Excel made; the values of the cells are left out).
+        const string ExcelBarRule = "<extLst><ext uri=\"{B025F937-C7B1-47D3-B67F-A62EFF666E3E}\" xmlns:x14=\"http://schemas.microsoft.com/office/spreadsheetml/2009/9/main\"><x14:id>{99D528A1-330B-4E65-842A-FB47E015F88C}</x14:id></ext></extLst>";
+        const string ExcelBarSheetExt = "<extLst><ext uri=\"{78C0D931-6437-407d-A8EE-F0AAD7539E65}\" xmlns:x14=\"http://schemas.microsoft.com/office/spreadsheetml/2009/9/main\"><x14:conditionalFormattings>"
+            + "<x14:conditionalFormatting xmlns:xm=\"http://schemas.microsoft.com/office/excel/2006/main\"><x14:cfRule type=\"dataBar\" id=\"{99D528A1-330B-4E65-842A-FB47E015F88C}\">"
+            + "<x14:dataBar minLength=\"0\" maxLength=\"100\" border=\"1\" gradient=\"0\" direction=\"rightToLeft\" negativeBarBorderColorSameAsPositive=\"0\" axisPosition=\"middle\">"
+            + "<x14:cfvo type=\"autoMin\"/><x14:cfvo type=\"autoMax\"/><x14:borderColor rgb=\"FF003060\"/><x14:negativeFillColor rgb=\"FFFF0000\"/><x14:negativeBorderColor rgb=\"FF800000\"/><x14:axisColor rgb=\"FF808080\"/>"
+            + "</x14:dataBar></x14:cfRule><xm:sqref>B2:B11</xm:sqref></x14:conditionalFormatting></x14:conditionalFormattings></ext></extLst>";
+
+        static byte[] ExcelBarFile()
+        {
+            byte[] bytes;
+            using (var p = BarsPackage())
+            {
+                var ws = p.Workbook.Worksheets["Bars"];
+                ws.ConditionalFormatting.AddDatabar(ws.Cells["B2:B11"], System.Drawing.Color.FromArgb(0x00, 0x70, 0xC0));
+                bytes = SavedBytes(p);
+            }
+            return WithPartChanged(bytes, "xl/worksheets/sheet1.xml", s => s.Replace("</dataBar></cfRule>", "</dataBar>" + ExcelBarRule + "</cfRule>").Replace("</worksheet>", ExcelBarSheetExt + "</worksheet>"));
+        }
+
+        [TestMethod]
+        public void Data_bar_of_Excel_2010_is_read_kept_changed_and_removed()
+        {
+            XmlNamespaceManager ns;
+            byte[] bytes = ExcelBarFile();
+            string extBefore = SheetWithX14(bytes, "xl/worksheets/sheet1.xml", out ns).SelectSingleNode("d:extLst", ns).OuterXml;
+
+            // read; saved with no change: the x14 part is as it was (Excel's autoMin and autoMax stay)
+            byte[] saved;
+            using (var p = new ExcelPackage(new MemoryStream(bytes)))
+            {
+                var bar = (OfficeOpenXml.ConditionalFormatting.ExcelConditionalFormattingDataBar)p.Workbook.Worksheets["Bars"].ConditionalFormatting[0];
+                Assert.AreEqual(OfficeOpenXml.ConditionalFormatting.eDataBarFillType.Solid, bar.FillType);
+                Assert.AreEqual(System.Drawing.Color.FromArgb(0x00, 0x30, 0x60).ToArgb(), bar.BorderColor.Value.ToArgb());
+                Assert.AreEqual(System.Drawing.Color.FromArgb(0xFF, 0x00, 0x00).ToArgb(), bar.NegativeFillColor.Value.ToArgb(), "negativeBarColorSameAsPositive is false by default");
+                Assert.AreEqual(OfficeOpenXml.ConditionalFormatting.eDataBarDirection.RightToLeft, bar.Direction);
+                saved = SavedBytes(p);
+            }
+            Assert.AreEqual(extBefore, SheetWithX14(saved, "xl/worksheets/sheet1.xml", out ns).SelectSingleNode("d:extLst", ns).OuterXml);
+
+            // the range and a value changed: the x14 part follows them on save, the rest of it stays
+            byte[] changed;
+            using (var p = new ExcelPackage(new MemoryStream(bytes)))
+            {
+                var bar = (OfficeOpenXml.ConditionalFormatting.ExcelConditionalFormattingDataBar)p.Workbook.Worksheets["Bars"].ConditionalFormatting[0];
+                bar.Address = new ExcelAddress("B2:B20");
+                bar.LowValue.Type = OfficeOpenXml.ConditionalFormatting.eExcelConditionalFormattingValueObjectType.Num;
+                bar.LowValue.Value = -3;
+                bar.Direction = OfficeOpenXml.ConditionalFormatting.eDataBarDirection.LeftToRight;
+                changed = SavedBytes(p);
+                byte[] second = SavedBytes(p);
+                Assert.AreEqual(SheetWithX14(changed, "xl/worksheets/sheet1.xml", out ns).OuterXml, SheetWithX14(second, "xl/worksheets/sheet1.xml", out ns).OuterXml, "a second save writes the same");
+            }
+            XmlElement sheet = SheetWithX14(changed, "xl/worksheets/sheet1.xml", out ns);
+            XmlNode formatting = sheet.SelectSingleNode("d:extLst/d:ext/x14:conditionalFormattings/x14:conditionalFormatting", ns);
+            Assert.AreEqual("B2:B20", formatting.SelectSingleNode("xm:sqref", ns).InnerText);
+            var dataBar = (XmlElement)formatting.SelectSingleNode("x14:cfRule/x14:dataBar", ns);
+            CollectionAssert.AreEqual(new[] { "cfvo:num:-3", "cfvo:autoMax:", "borderColor", "negativeFillColor", "negativeBorderColor", "axisColor" },
+                dataBar.ChildNodes.OfType<XmlElement>().Select(e => e.LocalName + (e.LocalName == "cfvo" ? ":" + e.GetAttribute("type") + ":" + e.InnerText : "")).ToArray(),
+                "the low value follows the rule; the high one was not changed and stays autoMax, as Excel wrote it");
+            Assert.AreEqual("leftToRight", dataBar.GetAttribute("direction"));
+            Assert.AreEqual("0", dataBar.GetAttribute("gradient"));
+
+            // removed: the x14 part goes, and the extLst with it when it has nothing else
+            using (var p = new ExcelPackage(new MemoryStream(bytes)))
+            {
+                var all = p.Workbook.Worksheets["Bars"].ConditionalFormatting;
+                all.RemoveAt(0);
+                sheet = SheetWithX14(SavedBytes(p), "xl/worksheets/sheet1.xml", out ns);
+                Assert.IsNull(sheet.SelectSingleNode("d:extLst", ns));
+                Assert.IsNull(sheet.SelectSingleNode("d:conditionalFormatting", ns));
+            }
+            using (var p = new ExcelPackage(new MemoryStream(bytes)))
+            {
+                var ws = p.Workbook.Worksheets["Bars"];
+                var other = ws.ConditionalFormatting.AddDatabar(ws.Cells["C2:C11"], System.Drawing.Color.Green);
+                other.Direction = OfficeOpenXml.ConditionalFormatting.eDataBarDirection.RightToLeft;
+                ws.ConditionalFormatting.Remove(ws.ConditionalFormatting[0]);
+                sheet = SheetWithX14(SavedBytes(p), "xl/worksheets/sheet1.xml", out ns);
+                var left = sheet.SelectNodes("d:extLst/d:ext/x14:conditionalFormattings/x14:conditionalFormatting", ns);
+                Assert.AreEqual(1, left.Count, "only the part of the bar that is left");
+                Assert.AreEqual("C2:C11", left[0].SelectSingleNode("xm:sqref", ns).InnerText);
+                ws.ConditionalFormatting.RemoveAll();
+                sheet = SheetWithX14(SavedBytes(p), "xl/worksheets/sheet1.xml", out ns);
+                Assert.IsNull(sheet.SelectSingleNode("d:extLst", ns));
+            }
+        }
+
+        [TestMethod]
+        public void Rule_that_refers_to_another_sheet_is_written_in_the_sheet()
+        {
+            // Excel 2016 reads such a rule from conditionalFormatting and applies it (checked); Excel itself writes it in the x14 part
+            XmlNamespaceManager ns;
+            byte[] bytes;
+            using (var p = new ExcelPackage())
+            {
+                var ws = p.Workbook.Worksheets.Add("Refs");
+                p.Workbook.Worksheets.Add("Lists").Cells["A1"].Value = 5;
+                for (int r = 1; r <= 9; r++) ws.Cells[r, 1].Value = r;
+                var rule = ws.ConditionalFormatting.AddGreaterThan(ws.Cells["A1:A9"]);
+                rule.Formula = "Lists!$A$1";
+                rule.Style.Font.Bold = true;
+                bytes = SavedBytes(p);
+            }
+            XmlElement sheet = SheetWithX14(bytes, "xl/worksheets/sheet1.xml", out ns);
+            Assert.AreEqual("Lists!$A$1", sheet.SelectSingleNode("d:conditionalFormatting/d:cfRule/d:formula", ns).InnerText);
+            Assert.IsNull(sheet.SelectSingleNode("d:extLst", ns));
+        }
+
         // #34 (B5 of #8): saving and loading with asynchronous input and output.
         // A stream like the response of a web server that does not allow synchronous input and output: every synchronous read,
         // write and flush throws.

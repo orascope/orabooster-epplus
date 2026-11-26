@@ -62,6 +62,30 @@ namespace OfficeOpenXml.ConditionalFormatting.Contracts
         /// The color of the databar
         /// </summary>
         Color Color { get; set;}
+
+        // orabooster-epplus (item B4 of issue #8, issue #46): the options of Excel 2010 and later. See ExcelConditionalFormattingDataBar.
+        /// <summary>True if the rule has the part of Excel 2010 and later, where the options below are.</summary>
+        bool HasExcel2010Options { get; }
+        /// <summary>How the bar is filled: a gradient (the default) or the colour.</summary>
+        eDataBarFillType FillType { get; set; }
+        /// <summary>True if the bar has a border.</summary>
+        bool ShowBorder { get; set; }
+        /// <summary>The colour of the border, or null.</summary>
+        Color? BorderColor { get; set; }
+        /// <summary>The colour of the bars of negative values; null for the colour of the bar.</summary>
+        Color? NegativeFillColor { get; set; }
+        /// <summary>The colour of the border of the bars of negative values; null for the colour of the border of the bar.</summary>
+        Color? NegativeBorderColor { get; set; }
+        /// <summary>Where the axis between the bars of negative and of positive values is.</summary>
+        eDataBarAxisPosition AxisPosition { get; set; }
+        /// <summary>The colour of the axis, or null.</summary>
+        Color? AxisColor { get; set; }
+        /// <summary>The direction of the bar.</summary>
+        eDataBarDirection Direction { get; set; }
+        /// <summary>The length of the shortest bar in percent of the width of the cell, 0 to 100 (default 10).</summary>
+        int MinLength { get; set; }
+        /// <summary>The length of the longest bar in percent of the width of the cell, 0 to 100 (default 90).</summary>
+        int MaxLength { get; set; }
         #endregion Public Properties
 	}
 }

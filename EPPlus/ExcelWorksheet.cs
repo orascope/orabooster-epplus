@@ -2992,6 +2992,17 @@ namespace OfficeOpenXml
                         HeaderFooter.SaveHeaderFooterImages();
                         SaveTables();
                         SavePivotTables();
+
+                        // orabooster-epplus (issue #46): the x14 part of a data bar (its options of Excel 2010) follows the range and
+                        // the values of the rule, where they were changed. Nothing is written for a rule whose part is as it was.
+                        if (_conditionalFormatting != null)
+                        {
+                            foreach (var rule in _conditionalFormatting)
+                            {
+                                var bar = rule as ExcelConditionalFormattingDataBar;
+                                if (bar != null) ExcelConditionalFormattingX14.SyncDataBar(this, (XmlElement)bar.Node, bar.Address.AddressSpaceSeparated);
+                            }
+                        }
                     }
                 }
 
