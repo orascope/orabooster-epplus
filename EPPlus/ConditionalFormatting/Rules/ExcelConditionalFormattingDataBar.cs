@@ -41,7 +41,7 @@ namespace OfficeOpenXml.ConditionalFormatting
     /// <summary>
     /// Databar
     /// </summary>
-    public class ExcelConditionalFormattingDataBar
+    public partial class ExcelConditionalFormattingDataBar // orabooster-epplus: partial for the options of Excel 2010 (issue #46)
       : ExcelConditionalFormattingRule,
         IExcelConditionalFormattingDataBarGroup
     {

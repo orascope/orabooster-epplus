@@ -139,6 +139,9 @@ namespace OfficeOpenXml.ConditionalFormatting
     internal int SavedDxfId = int.MinValue;
     internal string SavedStyleId;
 
+    // orabooster-epplus (issue #46): the worksheet of the rule, for the x14 part of a data bar
+    internal ExcelWorksheet RuleWorksheet { get { return _worksheet; } }
+
     /// <summary>
     /// Initialize the <see cref="ExcelConditionalFormattingRule"/>
     /// </summary>

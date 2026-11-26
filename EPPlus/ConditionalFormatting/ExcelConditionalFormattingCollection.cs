@@ -294,6 +294,9 @@ namespace OfficeOpenXml.ConditionalFormatting
         "//" + ExcelConditionalFormattingConstants.Paths.ConditionalFormatting,
         _worksheet.NameSpaceManager);
 
+      // orabooster-epplus (issue #46): the x14 parts of the rules (the options of data bars) go with them
+      foreach (var rule in _rules) ExcelConditionalFormattingX14.RemoveRule(_worksheet, rule.Node);
+
       // Remove all the <conditionalFormatting> nodes one by one
       foreach (XmlNode conditionalFormattingNode in conditionalFormattingNodes)
       {
@@ -315,6 +318,9 @@ namespace OfficeOpenXml.ConditionalFormatting
 
       try
       {
+        // orabooster-epplus (issue #46): the x14 part of the rule (the options of a data bar) goes with it
+        ExcelConditionalFormattingX14.RemoveRule(_worksheet, item.Node);
+
         // Point to the parent node
         var oldParentNode = item.Node.ParentNode;
 

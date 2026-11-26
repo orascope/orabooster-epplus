@@ -233,6 +233,39 @@ static class Issues
             }
         }
 
+        // #46 (B4 of #8): data bars with the options of Excel 2010, and a rule that refers to another sheet.
+        // issue46_databars.xlsx, sheet Bars: B2:B11 (-5 to 4) solid 0070C0 with a border 003060, negative bars FF0000 with a border
+        // 800000, the axis in the middle in 808080, right to left, lengths 0 to 100; C2:C11 a data bar with no option (Excel 2007).
+        // Sheet Refs: A1:A9 bold and red where the value is over Lists!$A$1 (5). cf-in-excel.ps1 prints what Excel reads.
+        {
+            using (var p = new ExcelPackage())
+            {
+                var ws = p.Workbook.Worksheets.Add("Bars");
+                for (int r = 2; r <= 11; r++) { ws.Cells[r, 2].Value = r - 7; ws.Cells[r, 3].Value = r; }
+                var bar = ws.ConditionalFormatting.AddDatabar(ws.Cells["B2:B11"], System.Drawing.Color.FromArgb(0x00, 0x70, 0xC0));
+                bar.FillType = OfficeOpenXml.ConditionalFormatting.eDataBarFillType.Solid;
+                bar.ShowBorder = true;
+                bar.BorderColor = System.Drawing.Color.FromArgb(0x00, 0x30, 0x60);
+                bar.NegativeFillColor = System.Drawing.Color.FromArgb(0xFF, 0x00, 0x00);
+                bar.NegativeBorderColor = System.Drawing.Color.FromArgb(0x80, 0x00, 0x00);
+                bar.AxisPosition = OfficeOpenXml.ConditionalFormatting.eDataBarAxisPosition.Middle;
+                bar.AxisColor = System.Drawing.Color.FromArgb(0x80, 0x80, 0x80);
+                bar.Direction = OfficeOpenXml.ConditionalFormatting.eDataBarDirection.RightToLeft;
+                bar.MinLength = 0;
+                bar.MaxLength = 100;
+                ws.ConditionalFormatting.AddDatabar(ws.Cells["C2:C11"], System.Drawing.Color.FromArgb(0x63, 0x8E, 0xC6));
+                var refs = p.Workbook.Worksheets.Add("Refs");
+                var lists = p.Workbook.Worksheets.Add("Lists");
+                lists.Cells["A1"].Value = 5;
+                for (int r = 1; r <= 9; r++) refs.Cells[r, 1].Value = r;
+                var rule = refs.ConditionalFormatting.AddGreaterThan(refs.Cells["A1:A9"]);
+                rule.Formula = "Lists!$A$1";
+                rule.Style.Font.Bold = true;
+                rule.Style.Font.Color.Color = System.Drawing.Color.Red;
+                p.SaveAs(new FileInfo(Path.Combine(a_dir, "issue46_databars.xlsx")));
+            }
+        }
+
         // #35: encrypted workbooks, password "orabooster": standard and agile encryption. open-in-excel.ps1 opens the files whose
         // names start with issue35_encrypted with that password; Excel must show 200 rows.
         foreach (EncryptionVersion version in new[] { EncryptionVersion.Standard, EncryptionVersion.Agile })
