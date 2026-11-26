@@ -1297,7 +1297,23 @@ namespace EPPlusTest
                 var ids = s.SelectNodes("d:conditionalFormatting/d:cfRule/d:extLst/d:ext/x14:id", ns).OfType<XmlNode>().Select(n => n.InnerText).ToArray();
                 Assert.AreEqual(2, ids.Distinct().Count());
                 CollectionAssert.AreEqual(ids, s.SelectNodes("d:extLst/d:ext/x14:conditionalFormattings/x14:conditionalFormatting/x14:cfRule/@id", ns).OfType<XmlNode>().Select(n => n.Value).ToArray());
-                CollectionAssert.AreEqual(a, b);
+                // every part the same. Not the bytes of the package: the zip entries carry the time of the save (to two seconds),
+                // so two saves on either side of a tick differ there (issue #58)
+                using (var za = new System.IO.Compression.ZipArchive(new MemoryStream(a)))
+                using (var zb = new System.IO.Compression.ZipArchive(new MemoryStream(b)))
+                {
+                    CollectionAssert.AreEqual(za.Entries.Select(e => e.FullName).ToArray(), zb.Entries.Select(e => e.FullName).ToArray());
+                    foreach (var entry in za.Entries)
+                    {
+                        using (var ma = new MemoryStream())
+                        using (var mb = new MemoryStream())
+                        {
+                            using (var sa = entry.Open()) sa.CopyTo(ma);
+                            using (var sb = zb.GetEntry(entry.FullName).Open()) sb.CopyTo(mb);
+                            CollectionAssert.AreEqual(ma.ToArray(), mb.ToArray(), entry.FullName);
+                        }
+                    }
+                }
             }
 
             using (var p = BarsPackage())
