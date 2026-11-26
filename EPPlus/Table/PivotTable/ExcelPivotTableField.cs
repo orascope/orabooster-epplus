@@ -171,7 +171,7 @@ namespace OfficeOpenXml.Table.PivotTable
     /// <summary>
     /// A pivot table field.
     /// </summary>
-    public class ExcelPivotTableField : XmlHelper
+    public partial class ExcelPivotTableField : XmlHelper // orabooster-epplus: partial for calculated fields (issue #54)
     {
         internal ExcelPivotTable _table;
         internal ExcelPivotTableField(XmlNamespaceManager ns, XmlNode topNode,ExcelPivotTable table, int index, int baseIndex) :
