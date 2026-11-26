@@ -24,6 +24,7 @@
 		4.5.3.8-ora.5
 		- The export of a range: ToDataTable, ToText and SaveToText (delimited text, the reverse of LoadFromText), ToJson, ToHtml (issue #32).
 		- Saving and loading with asynchronous input and output: SaveAsync, SaveAsAsync, LoadAsync (issue #34).
+		- A pivot field filtered by its items: HideItems, ShowItems, SetPageItem (issue #62).
 		- Label and value filters of a pivot field: SetLabelFilter, SetValueFilter (issue #60).
 		- A pivot field sorted by a data field: ExcelPivotTableField.SetSort (issue #56).
 		- Calculated fields of a pivot table: Fields.AddCalculatedField (issue #54).
