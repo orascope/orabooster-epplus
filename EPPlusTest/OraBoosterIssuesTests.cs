@@ -710,6 +710,108 @@ namespace EPPlusTest
             }
         }
 
+        // One part of a saved package.
+        static XmlElement PartOf(byte[] a_package, string a_entry, out XmlNamespaceManager a_ns)
+        {
+            using (var zip = new System.IO.Compression.ZipArchive(new MemoryStream(a_package)))
+            using (var s = zip.GetEntry(a_entry).Open())
+            {
+                var doc = new XmlDocument();
+                doc.Load(s);
+                a_ns = new XmlNamespaceManager(doc.NameTable);
+                a_ns.AddNamespace("d", "http://schemas.openxmlformats.org/spreadsheetml/2006/main");
+                return doc.DocumentElement;
+            }
+        }
+
+        // A package with one part changed as text.
+        static byte[] WithPartChanged(byte[] a_package, string a_entry, Func<string, string> a_change)
+        {
+            var ms = new MemoryStream();
+            ms.Write(a_package, 0, a_package.Length);
+            using (var zip = new System.IO.Compression.ZipArchive(ms, System.IO.Compression.ZipArchiveMode.Update, true))
+            {
+                var entry = zip.GetEntry(a_entry);
+                string text;
+                using (var r = new StreamReader(entry.Open())) text = r.ReadToEnd();
+                string changed = a_change(text);
+                Assert.AreNotEqual(text, changed, "nothing was changed in " + a_entry);
+                entry.Delete();
+                using (var w = new StreamWriter(zip.CreateEntry(a_entry).Open(), new System.Text.UTF8Encoding(false))) w.Write(changed);
+            }
+            return ms.ToArray();
+        }
+
+        // #40: a differential format (dxf) that is loaded, changed and written again says what the file said and no more, and
+        // strike and underline are written as the schema has them.
+        [TestMethod]
+        public void Loaded_dxf_keeps_what_the_file_says_when_it_is_changed()
+        {
+            XmlNamespaceManager ns;
+            byte[] bytes;
+            using (var p = new ExcelPackage())
+            {
+                var ws = p.Workbook.Worksheets.Add("S");
+                for (int r = 1; r <= 9; r++) ws.Cells[r, 1].Value = r;
+                var rule = ws.ConditionalFormatting.AddGreaterThan(ws.Cells["A1:A9"]);
+                rule.Formula = "4";
+                rule.Style.Font.Strike = true;
+                rule.Style.Font.Underline = OfficeOpenXml.Style.ExcelUnderLineType.Double;
+                bytes = SavedBytes(p);
+            }
+            // written: the value of strike is in val, and the underline is a name of the schema
+            XmlNode written = PartOf(bytes, "xl/styles.xml", out ns).SelectSingleNode("d:dxfs/d:dxf", ns);
+            Assert.AreEqual("1", written.SelectSingleNode("d:font/d:strike/@val", ns).Value);
+            Assert.AreEqual("", written.SelectSingleNode("d:font/d:strike", ns).InnerText);
+            Assert.AreEqual("double", written.SelectSingleNode("d:font/d:u/@val", ns).Value);
+            using (var p = new ExcelPackage(new MemoryStream(bytes)))
+            {
+                var style = p.Workbook.Worksheets["S"].ConditionalFormatting[0].Style;
+                Assert.AreEqual(true, style.Font.Strike);
+                Assert.AreEqual(OfficeOpenXml.Style.ExcelUnderLineType.Double, style.Font.Underline);
+            }
+
+            // the dxf as Excel writes one: on/off elements with no val, a fill with only a background colour, no number format,
+            // one border
+            const string excelDxf = "<dxf><font><b/><i/><strike/><u/><color theme=\"1\"/></font><fill><patternFill><bgColor rgb=\"FFFFE5CC\"/></patternFill></fill><border><top style=\"thin\"><color rgb=\"FF00B050\"/></top></border></dxf>";
+            bytes = WithPartChanged(bytes, "xl/styles.xml", s => System.Text.RegularExpressions.Regex.Replace(s, "<dxfs.*</dxfs>", "<dxfs count=\"1\">" + excelDxf + "</dxfs>"));
+            byte[] changed;
+            using (var p = new ExcelPackage(new MemoryStream(bytes)))
+            {
+                var style = p.Workbook.Worksheets["S"].ConditionalFormatting[0].Style;
+                Assert.AreEqual(true, style.Font.Bold);
+                Assert.AreEqual(true, style.Font.Italic);
+                Assert.AreEqual(true, style.Font.Strike);
+                Assert.AreEqual(OfficeOpenXml.Style.ExcelUnderLineType.Single, style.Font.Underline);
+                Assert.AreEqual(1, style.Font.Color.Theme);
+                Assert.IsNull(style.Fill.PatternType);
+                Assert.AreEqual(System.Drawing.Color.FromArgb(0xFF, 0xE5, 0xCC).ToArgb(), style.Fill.BackgroundColor.Color.Value.ToArgb());
+                Assert.AreEqual("", style.NumberFormat.Format);
+                Assert.IsNull(style.Border.Left.Style);
+                Assert.AreEqual(OfficeOpenXml.Style.ExcelBorderStyle.Thin, style.Border.Top.Style);
+
+                // the copy the rule has is its own: a colour set on it is not set on the dxf of the list
+                style.Border.Top.Color.Color = System.Drawing.Color.Blue;
+                Assert.AreEqual(System.Drawing.Color.FromArgb(0x00, 0xB0, 0x50).ToArgb(), p.Workbook.Styles.Dxfs[0].Border.Top.Color.Color.Value.ToArgb());
+                style.Font.Italic = false;
+                changed = SavedBytes(p);
+            }
+            XmlElement styles = PartOf(changed, "xl/styles.xml", out ns);
+            XmlNodeList dxfs = styles.SelectNodes("d:dxfs/d:dxf", ns);
+            Assert.AreEqual(2, dxfs.Count);
+            XmlNode added = dxfs[1];
+            Assert.AreEqual("1", added.SelectSingleNode("d:font/d:b/@val", ns).Value);
+            Assert.AreEqual("0", added.SelectSingleNode("d:font/d:i/@val", ns).Value);
+            Assert.AreEqual("1", added.SelectSingleNode("d:font/d:strike/@val", ns).Value);
+            Assert.AreEqual("single", added.SelectSingleNode("d:font/d:u/@val", ns).Value);
+            Assert.IsNull(added.SelectSingleNode("d:numFmt", ns), "a number format the file did not have");
+            Assert.IsNull(added.SelectSingleNode("d:fill/d:patternFill/@patternType", ns), "a pattern type the file did not have: \"none\" takes the fill away");
+            Assert.AreEqual("ffffe5cc", added.SelectSingleNode("d:fill/d:patternFill/d:bgColor/@rgb", ns).Value);
+            Assert.AreEqual("top", string.Join(",", added.SelectSingleNode("d:border", ns).ChildNodes.OfType<XmlElement>().Select(e => e.LocalName)), "borders the file did not have");
+            Assert.AreEqual("ff0000ff", added.SelectSingleNode("d:border/d:top/d:color/@rgb", ns).Value);
+            Assert.AreEqual("1", PartOf(changed, "xl/worksheets/sheet1.xml", out ns).SelectSingleNode("d:conditionalFormatting/d:cfRule/@dxfId", ns).Value);
+        }
+
         // #34 (B5 of #8): saving and loading with asynchronous input and output.
         // A stream like the response of a web server that does not allow synchronous input and output: every synchronous read,
         // write and flush throws.

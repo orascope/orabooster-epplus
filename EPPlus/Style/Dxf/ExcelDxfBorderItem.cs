@@ -38,7 +38,7 @@ namespace OfficeOpenXml.Style.Dxf
         }
         protected internal override ExcelDxfBorderItem Clone()
         {
-            return new ExcelDxfBorderItem(_styles) { Style = Style, Color = Color };
+            return new ExcelDxfBorderItem(_styles) { Style = Style, Color = Color.Clone() }; // orabooster-epplus (issue #40): the copy had the same colour object, so a colour set on the copy was set on the original too
         }
     }
 }

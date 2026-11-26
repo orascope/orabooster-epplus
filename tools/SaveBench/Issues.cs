@@ -163,6 +163,32 @@ static class Issues
             }
         }
 
+        // #40: a conditional format with a strike-through and a double underline (values over 4: A5 to A9), which were written in
+        // a way Excel does not take. issue40_dxf_changed.xlsx is that workbook loaded, the font of the rule made red, and saved:
+        // the rest of the format (strike, underline, the yellow fill) must still be there.
+        {
+            var ms = new MemoryStream();
+            using (var p = new ExcelPackage())
+            {
+                var ws = p.Workbook.Worksheets.Add("Dxf");
+                for (int r = 1; r <= 9; r++) ws.Cells[r, 1].Value = r;
+                var rule = ws.ConditionalFormatting.AddGreaterThan(ws.Cells["A1:A9"]);
+                rule.Formula = "4";
+                rule.Style.Font.Strike = true;
+                rule.Style.Font.Underline = OfficeOpenXml.Style.ExcelUnderLineType.Double;
+                rule.Style.Fill.PatternType = OfficeOpenXml.Style.ExcelFillStyle.Solid;
+                rule.Style.Fill.BackgroundColor.Color = System.Drawing.Color.Yellow;
+                p.SaveAs(ms);
+            }
+            File.WriteAllBytes(Path.Combine(a_dir, "issue40_dxf.xlsx"), ms.ToArray());
+            ms.Position = 0;
+            using (var p = new ExcelPackage(ms))
+            {
+                p.Workbook.Worksheets["Dxf"].ConditionalFormatting[0].Style.Font.Color.Color = System.Drawing.Color.Red;
+                p.SaveAs(new FileInfo(Path.Combine(a_dir, "issue40_dxf_changed.xlsx")));
+            }
+        }
+
         // #35: encrypted workbooks, password "orabooster": standard and agile encryption. open-in-excel.ps1 opens the files whose
         // names start with issue35_encrypted with that password; Excel must show 200 rows.
         foreach (EncryptionVersion version in new[] { EncryptionVersion.Standard, EncryptionVersion.Agile })

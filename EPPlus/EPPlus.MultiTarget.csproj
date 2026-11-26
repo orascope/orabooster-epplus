@@ -26,6 +26,7 @@
 		- Saving and loading with asynchronous input and output: SaveAsync, SaveAsAsync, LoadAsync (issue #34).
 		- An encrypted workbook is loaded again on .NET 6 and later (issue #35).
 		- TableStyle of a loaded table or pivot table has the style of the file (issue #39).
+		- A conditional format of a loaded workbook keeps its fill and bold when its style is changed; a double underline is written as one (issue #40).
 
 		4.5.3.8-ora.4
 		- A chart series added with no X range (null or "") no longer throws or writes a reference with no address (issue #27).

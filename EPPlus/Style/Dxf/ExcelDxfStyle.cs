@@ -20,17 +20,32 @@ namespace OfficeOpenXml.Style.Dxf
             if (topNode != null)
             {
                 _helper = new XmlHelperInstance(nameSpaceManager, topNode);
-                NumberFormat.NumFmtID = _helper.GetXmlNodeInt("d:numFmt/@numFmtId");
-                NumberFormat.Format = _helper.GetXmlNodeString("d:numFmt/@formatCode"); 
-                if (NumberFormat.NumFmtID < 164 && string.IsNullOrEmpty(NumberFormat.Format))
+                // orabooster-epplus (issue #40): what the dxf does not have is "not set" here, so that a format that is loaded,
+                // changed and written again says what the file said and no more. Before:
+                //  - a dxf with no numFmt was read as the format "General", and written with <numFmt numFmtId="0" formatCode="General"/>
+                //  - <b/>, <i/> and <strike/> with no val (true, and the way Excel writes them) were read as not set; <u/> too
+                //  - a patternFill with no patternType was read as None and written as patternType="none": the fill was gone.
+                //    Excel writes the fill of a dxf with only a background colour
+                //  - a border with no left, right, top or bottom was read as None and written with style="none" on all four
+                if (topNode.SelectSingleNode("d:numFmt", nameSpaceManager) != null)
                 {
-                    NumberFormat.Format = ExcelNumberFormat.GetFromBuildInFromID(NumberFormat.NumFmtID);
+                    NumberFormat.NumFmtID = _helper.GetXmlNodeInt("d:numFmt/@numFmtId");
+                    NumberFormat.Format = _helper.GetXmlNodeString("d:numFmt/@formatCode");
+                    if (NumberFormat.NumFmtID < 164 && string.IsNullOrEmpty(NumberFormat.Format))
+                    {
+                        NumberFormat.Format = ExcelNumberFormat.GetFromBuildInFromID(NumberFormat.NumFmtID);
+                    }
                 }
 
-                Font.Bold = _helper.GetXmlNodeBoolNullable("d:font/d:b/@val");
-                Font.Italic = _helper.GetXmlNodeBoolNullable("d:font/d:i/@val");
-                Font.Strike = _helper.GetXmlNodeBoolNullable("d:font/d:strike");
-                Font.Underline = GetUnderLineEnum(_helper.GetXmlNodeString("d:font/d:u/@val"));
+                Font.Bold = ReadFlag(topNode, nameSpaceManager, "d:font/d:b");
+                Font.Italic = ReadFlag(topNode, nameSpaceManager, "d:font/d:i");
+                Font.Strike = ReadFlag(topNode, nameSpaceManager, "d:font/d:strike");
+                XmlElement underline = topNode.SelectSingleNode("d:font/d:u", nameSpaceManager) as XmlElement;
+                if (underline != null)
+                {
+                    string u = underline.GetAttribute("val");
+                    Font.Underline = u == "" ? ExcelUnderLineType.Single : u == "none" ? ExcelUnderLineType.None : GetUnderLineEnum(u);
+                }
                 Font.Color = GetColor(_helper, "d:font/d:color");
 
                 Border.Left = GetBorderItem(_helper, "d:border/d:left");
@@ -38,7 +53,8 @@ namespace OfficeOpenXml.Style.Dxf
                 Border.Bottom = GetBorderItem(_helper, "d:border/d:bottom");
                 Border.Top = GetBorderItem(_helper, "d:border/d:top");
 
-                Fill.PatternType = GetPatternTypeEnum(_helper.GetXmlNodeString("d:fill/d:patternFill/@patternType"));
+                string patternType = _helper.GetXmlNodeString("d:fill/d:patternFill/@patternType");
+                Fill.PatternType = patternType == "" ? (ExcelFillStyle?)null : GetPatternTypeEnum(patternType);
                 Fill.BackgroundColor = GetColor(_helper, "d:fill/d:patternFill/d:bgColor/");
                 Fill.PatternColor = GetColor(_helper, "d:fill/d:patternFill/d:fgColor/");
             }
@@ -48,10 +64,20 @@ namespace OfficeOpenXml.Style.Dxf
             }
             _helper.SchemaNodeOrder = new string[] { "font", "numFmt", "fill", "border" };
         }
+        // orabooster-epplus (issue #40): an on/off element of a font (b, i, strike): null when it is not there, else its val, true with no val
+        private static bool? ReadFlag(XmlNode topNode, XmlNamespaceManager nameSpaceManager, string path)
+        {
+            XmlElement node = topNode.SelectSingleNode(path, nameSpaceManager) as XmlElement;
+            if (node == null) return null;
+            string val = node.GetAttribute("val");
+            if (val == "") return true;
+            return val == "1" || val.Equals("true", StringComparison.OrdinalIgnoreCase);
+        }
         private ExcelDxfBorderItem GetBorderItem(XmlHelperInstance helper, string path)
         {
             ExcelDxfBorderItem bi = new ExcelDxfBorderItem(_styles);
-            bi.Style = GetBorderStyleEnum(helper.GetXmlNodeString(path+"/@style"));
+            string style = helper.GetXmlNodeString(path + "/@style");
+            bi.Style = style == "" ? (ExcelBorderStyle?)null : GetBorderStyleEnum(style); // orabooster-epplus (issue #40): no style is "not set", not None
             bi.Color = GetColor(helper, path+"/d:color");
             return bi;
         }

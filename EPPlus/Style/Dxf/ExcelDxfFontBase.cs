@@ -62,8 +62,11 @@ namespace OfficeOpenXml.Style.Dxf
             helper.CreateNode(path);
             SetValueBool(helper, path + "/d:b/@val", Bold);
             SetValueBool(helper, path + "/d:i/@val", Italic);
-            SetValueBool(helper, path + "/d:strike", Strike);
-            SetValue(helper, path + "/d:u/@val", Underline);
+            // orabooster-epplus (issue #40): strike was written as <strike>1</strike> and the underline as val="Single" (with a
+            // capital letter), which the schema does not have: CT_BooleanProperty has its value in val, and ST_UnderlineValues is
+            // single, double, singleAccounting, doubleAccounting, none.
+            SetValueBool(helper, path + "/d:strike/@val", Strike);
+            SetValueEnum(helper, path + "/d:u/@val", Underline);
             SetValueColor(helper, path + "/d:color", Color);
         }
         protected internal override bool HasValue
