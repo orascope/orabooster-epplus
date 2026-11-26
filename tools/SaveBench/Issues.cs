@@ -422,6 +422,34 @@ static class Issues
             }
         }
 
+        // #65 (B2 of #8, part 5): slicers of a pivot table. issue65_pivot_slicers.xlsx: PT1 with Region in the rows and Sum of
+        // Sales, a slicer of Region with East and West selected, and a slicer of Product (a field that is not in the pivot
+        // table) with P1 and P2 selected, in two columns with the style SlicerStyleDark2. Excel shows East 120 (40 + 80) and
+        // West 50, total 170. slicer-in-excel.ps1 and pivot-in-excel.ps1 print what Excel reads.
+        {
+            using (var p = new ExcelPackage())
+            {
+                var data = p.Workbook.Worksheets.Add("Data");
+                data.Cells["A1"].Value = "Region"; data.Cells["B1"].Value = "Product"; data.Cells["C1"].Value = "Sales"; data.Cells["D1"].Value = "Qty";
+                string[] regions = { "North", "South", "East", "West" };
+                for (int r = 2; r <= 9; r++) { data.Cells[r, 1].Value = regions[(r - 2) % 4]; data.Cells[r, 2].Value = "P" + (r % 3); data.Cells[r, 3].Value = r * 10; data.Cells[r, 4].Value = r; }
+                var ws = p.Workbook.Worksheets.Add("Pivot");
+                var pivot = ws.PivotTables.Add(ws.Cells["A3"], data.Cells["A1:D9"], "PT1");
+                pivot.RowFields.Add(pivot.Fields["Region"]);
+                pivot.DataFields.Add(pivot.Fields["Sales"]).Name = "Sum of Sales";
+                var region = ws.Drawings.AddPivotTableSlicer(pivot.Fields["Region"]);
+                region.SetPosition(2, 0, 4, 0);
+                region.Select("East", "West");
+                var product = ws.Drawings.AddPivotTableSlicer(pivot.Fields["Product"]);
+                product.SetPosition(2, 0, 8, 0);
+                product.Select("P1", "P2");
+                product.ColumnCount = 2;
+                product.Style = "SlicerStyleDark2";
+                product.Caption = "Products";
+                p.SaveAs(new FileInfo(Path.Combine(a_dir, "issue65_pivot_slicers.xlsx")));
+            }
+        }
+
         // #35: encrypted workbooks, password "orabooster": standard and agile encryption. open-in-excel.ps1 opens the files whose
         // names start with issue35_encrypted with that password; Excel must show 200 rows.
         foreach (EncryptionVersion version in new[] { EncryptionVersion.Standard, EncryptionVersion.Agile })
