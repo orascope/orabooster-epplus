@@ -84,7 +84,7 @@ namespace OfficeOpenXml.Table.PivotTable
             }
         }
     }
-    public class ExcelPivotTableFieldCollection : ExcelPivotTableFieldCollectionBase<ExcelPivotTableField>
+    public partial class ExcelPivotTableFieldCollection : ExcelPivotTableFieldCollectionBase<ExcelPivotTableField> // orabooster-epplus: partial for calculated fields (issue #54)
     {
         internal ExcelPivotTableFieldCollection(ExcelPivotTable table, string topNode) :
             base(table)
@@ -179,6 +179,8 @@ namespace OfficeOpenXml.Table.PivotTable
         }
         private void SetFlag(ExcelPivotTableField field, bool value)
         {
+            // orabooster-epplus (issue #54): a calculated field has no items, so it can only be a data field
+            if (value && field.IsCalculated) throw new InvalidOperationException("A calculated field can only be a data field");
             switch (_topNode)
             {
                 case "rowFields":

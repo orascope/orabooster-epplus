@@ -1784,6 +1784,144 @@ namespace EPPlusTest
             Assert.AreEqual(1, slicers.SelectNodes("x14:slicer", ns).Count);
         }
 
+        // #54 (B2 of #8, part 1): calculated fields of a pivot table.
+        static ExcelPackage PivotSourcePackage()
+        {
+            var p = new ExcelPackage();
+            var ws = p.Workbook.Worksheets.Add("Data");
+            ws.Cells["A1"].Value = "Region"; ws.Cells["B1"].Value = "Product"; ws.Cells["C1"].Value = "Sales"; ws.Cells["D1"].Value = "Qty";
+            string[] regions = { "North", "South", "East", "West" };
+            for (int r = 2; r <= 9; r++) { ws.Cells[r, 1].Value = regions[(r - 2) % 4]; ws.Cells[r, 2].Value = "P" + (r % 3); ws.Cells[r, 3].Value = r * 10; ws.Cells[r, 4].Value = r; }
+            p.Workbook.Worksheets.Add("Pivot");
+            return p;
+        }
+
+        [TestMethod]
+        public void Pivot_calculated_field_is_written_and_read()
+        {
+            XmlNamespaceManager ns;
+            byte[] bytes;
+            using (var p = PivotSourcePackage())
+            {
+                var data = p.Workbook.Worksheets["Data"];
+                var pivot = p.Workbook.Worksheets["Pivot"].PivotTables.Add(p.Workbook.Worksheets["Pivot"].Cells["A3"], data.Cells["A1:D9"], "PT1");
+                pivot.RowFields.Add(pivot.Fields["Region"]);
+                pivot.DataFields.Add(pivot.Fields["Sales"]).Name = "Sum of Sales";
+                Assert.IsFalse(pivot.Fields["Sales"].IsCalculated);
+                Assert.IsNull(pivot.Fields["Sales"].Formula);
+
+                var dbl = pivot.Fields.AddCalculatedField("Double", "=Sales*2");
+                Assert.AreEqual(5, pivot.Fields.Count);
+                Assert.AreSame(dbl, pivot.Fields["Double"]);
+                Assert.AreEqual(4, dbl.Index);
+                Assert.IsTrue(dbl.IsCalculated);
+                Assert.AreEqual("Sales*2", dbl.Formula, "the equal sign is not kept");
+                pivot.DataFields.Add(dbl).Name = "Sum of Double";
+                var perUnit = pivot.Fields.AddCalculatedField("Per unit", "Sales/Qty");
+                perUnit.Formula = " = Sales / Qty ";
+                Assert.AreEqual("Sales / Qty", perUnit.Formula);
+
+                Assert.ThrowsException<ArgumentException>(() => pivot.Fields.AddCalculatedField("double", "Sales*3"));   // the name is there
+                Assert.ThrowsException<ArgumentException>(() => pivot.Fields.AddCalculatedField("Sales", "Qty*3"));      // a field of the source
+                Assert.ThrowsException<ArgumentException>(() => pivot.Fields.AddCalculatedField("", "Qty*3"));
+                Assert.ThrowsException<ArgumentException>(() => pivot.Fields.AddCalculatedField("X", "="));
+                // a formula that names no field of the pivot table: Excel does not open such a workbook
+                Assert.ThrowsException<ArgumentException>(() => pivot.Fields.AddCalculatedField("X", "Nope*2"));
+                Assert.ThrowsException<ArgumentException>(() => pivot.Fields.AddCalculatedField("X", "'Unit price'*Qty"));
+                Assert.ThrowsException<ArgumentException>(() => pivot.Fields.AddCalculatedField("X", "X+Sales"), "the field itself");
+                Assert.ThrowsException<ArgumentException>(() => pivot.Fields.AddCalculatedField("X", "'Sales*2"), "a quote that is not closed");
+                Assert.ThrowsException<ArgumentException>(() => dbl.Formula = "Double+1");
+                Assert.AreEqual(6, pivot.Fields.Count, "nothing was added by the calls that threw");
+                // names in quotes, another calculated field, a function, numbers, a text and TRUE are all taken
+                dbl.Formula = "IF('Sales'>1.5E2, ROUND(sales*2, 0), qty*2) + IF(TRUE, 0, 1) + LEN(\"Nope\")*0";
+                dbl.Formula = "Sales*2";
+                perUnit.Formula = "Double/Qty/2";
+                perUnit.Formula = "Sales / Qty";
+                Assert.ThrowsException<InvalidOperationException>(() => pivot.ColumnFields.Add(perUnit));
+                Assert.ThrowsException<InvalidOperationException>(() => pivot.RowFields.Add(dbl));                       // only a data field
+                Assert.ThrowsException<InvalidOperationException>(() => pivot.Fields["Sales"].Formula = "Qty");
+                bytes = SavedBytes(p);
+            }
+            XmlElement cache = PartOf(bytes, "xl/pivotCache/pivotCacheDefinition1.xml", out ns);
+            Assert.AreEqual("1", cache.GetAttribute("refreshOnLoad"));
+            Assert.AreEqual("6", ((XmlElement)cache.SelectSingleNode("d:cacheFields", ns)).GetAttribute("count"));
+            var calc = cache.SelectNodes("d:cacheFields/d:cacheField[@formula]", ns).OfType<XmlElement>().ToList();
+            CollectionAssert.AreEqual(new[] { "Double|Sales*2|0|0", "Per unit|Sales / Qty|0|0" },
+                calc.Select(c => c.GetAttribute("name") + "|" + c.GetAttribute("formula") + "|" + c.GetAttribute("databaseField") + "|" + c.ChildNodes.Count).ToArray());
+            Assert.AreSame(calc[0], cache.SelectNodes("d:cacheFields/d:cacheField", ns)[4], "after the fields of the source");
+
+            XmlElement table = PartOf(bytes, "xl/pivotTables/pivotTable1.xml", out ns);
+            Assert.AreEqual("6", ((XmlElement)table.SelectSingleNode("d:pivotFields", ns)).GetAttribute("count"));
+            var fields = table.SelectNodes("d:pivotFields/d:pivotField", ns).OfType<XmlElement>().ToList();
+            Assert.AreEqual(6, fields.Count);
+            Assert.AreEqual("1", fields[4].GetAttribute("dataField"));
+            Assert.AreEqual("0", fields[4].GetAttribute("dragToRow"));
+            Assert.AreEqual("0", fields[4].GetAttribute("defaultSubtotal"));
+            Assert.AreEqual("", fields[5].GetAttribute("dataField"), "a calculated field that is not used");
+            CollectionAssert.AreEqual(new[] { "Sum of Sales=2", "Sum of Double=4" },
+                table.SelectNodes("d:dataFields/d:dataField", ns).OfType<XmlElement>().Select(d => d.GetAttribute("name") + "=" + d.GetAttribute("fld")).ToArray());
+
+            using (var p = new ExcelPackage(new MemoryStream(bytes)))
+            {
+                var pivot = p.Workbook.Worksheets["Pivot"].PivotTables["PT1"];
+                Assert.AreEqual(6, pivot.Fields.Count);
+                Assert.IsTrue(pivot.Fields["Double"].IsCalculated);
+                Assert.AreEqual("Sales*2", pivot.Fields["Double"].Formula);
+                Assert.AreEqual("Sales / Qty", pivot.Fields["Per unit"].Formula);
+                Assert.IsFalse(pivot.Fields["Qty"].IsCalculated);
+                Assert.AreSame(pivot.Fields["Double"], pivot.DataFields[1].Field);
+                pivot.Fields["Double"].Formula = "Sales*3";
+                Assert.AreEqual("Sales*3", PartOf(SavedBytes(p), "xl/pivotCache/pivotCacheDefinition1.xml", out ns).SelectSingleNode("d:cacheFields/d:cacheField[@name='Double']/@formula", ns).Value);
+            }
+        }
+
+        [TestMethod]
+        public void Pivot_calculated_field_reaches_every_pivot_table_of_the_cache()
+        {
+            // two pivot tables on one cache, as Excel writes them: the second table is made here by pointing a copy of the
+            // first one's part to the same cache
+            XmlNamespaceManager ns;
+            byte[] bytes;
+            using (var p = PivotSourcePackage())
+            {
+                var data = p.Workbook.Worksheets["Data"];
+                var ws = p.Workbook.Worksheets["Pivot"];
+                var one = ws.PivotTables.Add(ws.Cells["A3"], data.Cells["A1:D9"], "PT1");
+                one.RowFields.Add(one.Fields["Region"]);
+                one.DataFields.Add(one.Fields["Sales"]);
+                var two = ws.PivotTables.Add(ws.Cells["F3"], data.Cells["A1:D9"], "PT2");
+                two.RowFields.Add(two.Fields["Product"]);
+                two.DataFields.Add(two.Fields["Sales"]);
+                bytes = SavedBytes(p);
+            }
+            Assert.IsTrue(Entries(bytes).Contains("xl/pivotCache/pivotCacheDefinition2.xml"));
+            bytes = WithPartChanged(bytes, "xl/pivotTables/_rels/pivotTable2.xml.rels", s => s.Replace("pivotCacheDefinition2.xml", "pivotCacheDefinition1.xml"));
+            string cacheIdOfOne = PartOf(bytes, "xl/pivotTables/pivotTable1.xml", out ns).GetAttribute("cacheId");
+            bytes = WithPartChanged(bytes, "xl/pivotTables/pivotTable2.xml", s => System.Text.RegularExpressions.Regex.Replace(s, "cacheId=\"\\d+\"", "cacheId=\"" + cacheIdOfOne + "\""));
+
+            using (var p = new ExcelPackage(new MemoryStream(bytes)))
+            {
+                var ws = p.Workbook.Worksheets["Pivot"];
+                var one = ws.PivotTables["PT1"];
+                var two = ws.PivotTables["PT2"];
+                Assert.AreEqual(one.CacheDefinition.CacheDefinitionUri.OriginalString, two.CacheDefinition.CacheDefinitionUri.OriginalString);
+                var field = one.Fields.AddCalculatedField("Double", "Sales*2");
+                one.DataFields.Add(field);
+                Assert.AreEqual(5, two.Fields.Count, "the other pivot table of the cache has the field too");
+                Assert.IsTrue(two.Fields["Double"].IsCalculated);
+                one.Fields["Double"].Formula = "Sales*4";
+                Assert.AreEqual("Sales*4", two.Fields["Double"].Formula);
+                bytes = SavedBytes(p);
+            }
+            XmlElement cache = PartOf(bytes, "xl/pivotCache/pivotCacheDefinition1.xml", out ns);
+            Assert.AreEqual(5, cache.SelectNodes("d:cacheFields/d:cacheField", ns).Count);
+            Assert.AreEqual("Sales*4", cache.SelectSingleNode("d:cacheFields/d:cacheField[@name='Double']/@formula", ns).Value);
+            foreach (string part in new[] { "xl/pivotTables/pivotTable1.xml", "xl/pivotTables/pivotTable2.xml" })
+            {
+                Assert.AreEqual(5, PartOf(bytes, part, out ns).SelectNodes("d:pivotFields/d:pivotField", ns).Count, part);
+            }
+        }
+
         // #34 (B5 of #8): saving and loading with asynchronous input and output.
         // A stream like the response of a web server that does not allow synchronous input and output: every synchronous read,
         // write and flush throws.

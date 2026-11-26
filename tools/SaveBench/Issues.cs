@@ -291,6 +291,27 @@ static class Issues
             }
         }
 
+        // #54 (B2 of #8, part 1): a pivot table with calculated fields. issue54_pivot_calculated.xlsx: Data!A1:D9 (Region, Product,
+        // Sales, Qty), a pivot table on Pivot!A3 with Region in the rows and three data fields: Sum of Sales, Sum of Double
+        // (Double = Sales*2) and Sum of Per unit (Per unit = Sales/Qty, which is 10 for every row). pivot-in-excel.ps1 prints
+        // the table as Excel shows it: North 80 160 10, South 100 200 10, East 120 240 10, West 140 280 10, total 440 880 10.
+        {
+            using (var p = new ExcelPackage())
+            {
+                var data = p.Workbook.Worksheets.Add("Data");
+                data.Cells["A1"].Value = "Region"; data.Cells["B1"].Value = "Product"; data.Cells["C1"].Value = "Sales"; data.Cells["D1"].Value = "Qty";
+                string[] regions = { "North", "South", "East", "West" };
+                for (int r = 2; r <= 9; r++) { data.Cells[r, 1].Value = regions[(r - 2) % 4]; data.Cells[r, 2].Value = "P" + (r % 3); data.Cells[r, 3].Value = r * 10; data.Cells[r, 4].Value = r; }
+                var ws = p.Workbook.Worksheets.Add("Pivot");
+                var pivot = ws.PivotTables.Add(ws.Cells["A3"], data.Cells["A1:D9"], "PT1");
+                pivot.RowFields.Add(pivot.Fields["Region"]);
+                pivot.DataFields.Add(pivot.Fields["Sales"]).Name = "Sum of Sales";
+                pivot.DataFields.Add(pivot.Fields.AddCalculatedField("Double", "Sales*2")).Name = "Sum of Double";
+                pivot.DataFields.Add(pivot.Fields.AddCalculatedField("Per unit", "Sales/Qty")).Name = "Sum of Per unit";
+                p.SaveAs(new FileInfo(Path.Combine(a_dir, "issue54_pivot_calculated.xlsx")));
+            }
+        }
+
         // #35: encrypted workbooks, password "orabooster": standard and agile encryption. open-in-excel.ps1 opens the files whose
         // names start with issue35_encrypted with that password; Excel must show 200 rows.
         foreach (EncryptionVersion version in new[] { EncryptionVersion.Standard, EncryptionVersion.Agile })
