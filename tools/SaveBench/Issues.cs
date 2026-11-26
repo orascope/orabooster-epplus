@@ -312,6 +312,33 @@ static class Issues
             }
         }
 
+        // #56 (B2 of #8, part 2): a pivot field sorted by a data field. issue56_pivot_sorted.xlsx: Region in the rows, Sum of Qty
+        // and Sum of Sales, Region sorted descending by Sum of Sales (West 140, East 120, South 100, North 80); a second pivot
+        // table on H3 with Product sorted ascending by Sum of Sales (P1 110, P2 150, P0 180). pivot-in-excel.ps1 prints them.
+        {
+            using (var p = new ExcelPackage())
+            {
+                var data = p.Workbook.Worksheets.Add("Data");
+                data.Cells["A1"].Value = "Region"; data.Cells["B1"].Value = "Product"; data.Cells["C1"].Value = "Sales"; data.Cells["D1"].Value = "Qty";
+                string[] regions = { "North", "South", "East", "West" };
+                for (int r = 2; r <= 9; r++) { data.Cells[r, 1].Value = regions[(r - 2) % 4]; data.Cells[r, 2].Value = "P" + (r % 3); data.Cells[r, 3].Value = r * 10; data.Cells[r, 4].Value = r; }
+                var ws = p.Workbook.Worksheets.Add("Pivot");
+                var pivot = ws.PivotTables.Add(ws.Cells["A3"], data.Cells["A1:D9"], "PT1");
+                pivot.DataOnRows = false;
+                pivot.RowFields.Add(pivot.Fields["Region"]);
+                pivot.DataFields.Add(pivot.Fields["Qty"]).Name = "Sum of Qty";
+                var sales = pivot.DataFields.Add(pivot.Fields["Sales"]);
+                sales.Name = "Sum of Sales";
+                pivot.Fields["Region"].SetSort(OfficeOpenXml.Table.PivotTable.eSortType.Descending, sales);
+                var second = ws.PivotTables.Add(ws.Cells["H3"], data.Cells["A1:D9"], "PT2");
+                second.RowFields.Add(second.Fields["Product"]);
+                var sales2 = second.DataFields.Add(second.Fields["Sales"]);
+                sales2.Name = "Sum of Sales";
+                second.Fields["Product"].SetSort(OfficeOpenXml.Table.PivotTable.eSortType.Ascending, sales2);
+                p.SaveAs(new FileInfo(Path.Combine(a_dir, "issue56_pivot_sorted.xlsx")));
+            }
+        }
+
         // #35: encrypted workbooks, password "orabooster": standard and agile encryption. open-in-excel.ps1 opens the files whose
         // names start with issue35_encrypted with that password; Excel must show 200 rows.
         foreach (EncryptionVersion version in new[] { EncryptionVersion.Standard, EncryptionVersion.Agile })

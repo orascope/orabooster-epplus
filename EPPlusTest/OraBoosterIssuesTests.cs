@@ -1938,6 +1938,74 @@ namespace EPPlusTest
             }
         }
 
+        // #56 (B2 of #8, part 2): the items of a pivot field sorted by a data field.
+        [TestMethod]
+        public void Pivot_field_is_sorted_by_a_data_field()
+        {
+            XmlNamespaceManager ns;
+            byte[] bytes;
+            using (var p = PivotSourcePackage())
+            {
+                var data = p.Workbook.Worksheets["Data"];
+                var ws = p.Workbook.Worksheets["Pivot"];
+                var pivot = ws.PivotTables.Add(ws.Cells["A3"], data.Cells["A1:D9"], "PT1");
+                var region = pivot.Fields["Region"];
+                pivot.RowFields.Add(region);
+                var qty = pivot.DataFields.Add(pivot.Fields["Qty"]);
+                var sales = pivot.DataFields.Add(pivot.Fields["Sales"]);
+                Assert.IsNull(region.SortDataField);
+                region.SetSort(OfficeOpenXml.Table.PivotTable.eSortType.Descending, sales);
+                Assert.AreSame(sales, region.SortDataField);
+                Assert.AreEqual(OfficeOpenXml.Table.PivotTable.eSortType.Descending, region.Sort);
+                Assert.AreEqual("1", region.TopNode.SelectSingleNode("d:autoSortScope/d:pivotArea/d:references/d:reference/d:x/@v", region.NameSpaceManager).Value);
+                Assert.ThrowsException<ArgumentException>(() => region.SetSort(OfficeOpenXml.Table.PivotTable.eSortType.None, sales));
+                var other = ws.PivotTables.Add(ws.Cells["H3"], data.Cells["A1:D9"], "PT2");
+                var foreign = other.DataFields.Add(other.Fields["Sales"]);
+                Assert.ThrowsException<ArgumentException>(() => region.SetSort(OfficeOpenXml.Table.PivotTable.eSortType.Ascending, foreign));
+                // the data field before it is taken away: the position follows on save
+                pivot.DataFields.Remove(qty);
+                bytes = SavedBytes(p);
+            }
+            XmlElement table = PartOf(bytes, "xl/pivotTables/pivotTable1.xml", out ns);
+            var field = (XmlElement)table.SelectSingleNode("d:pivotFields/d:pivotField[1]", ns);
+            Assert.AreEqual("descending", field.GetAttribute("sortType"));
+            var area = (XmlElement)field.SelectSingleNode("d:autoSortScope/d:pivotArea", ns);
+            Assert.AreEqual("0", area.GetAttribute("dataOnly"));
+            Assert.AreEqual("0", area.GetAttribute("outline"));
+            var reference = (XmlElement)area.SelectSingleNode("d:references/d:reference", ns);
+            Assert.AreEqual("4294967294", reference.GetAttribute("field"));
+            Assert.AreEqual("0", reference.SelectSingleNode("d:x/@v", ns).Value, "the data field is the first one now");
+
+            using (var p = new ExcelPackage(new MemoryStream(bytes)))
+            {
+                var pivot = p.Workbook.Worksheets["Pivot"].PivotTables["PT1"];
+                var region = pivot.Fields["Region"];
+                Assert.AreSame(pivot.DataFields[0], region.SortDataField);
+                byte[] same = SavedBytes(p);
+                Assert.AreEqual(field.OuterXml, PartOf(same, "xl/pivotTables/pivotTable1.xml", out ns).SelectSingleNode("d:pivotFields/d:pivotField[1]", ns).OuterXml, "read and saved: as it was");
+                // a loaded cache that is not refreshed on load (as Excel saves it) is, once a sort by a data field is set
+                ((XmlElement)pivot.CacheDefinition.TopNode).RemoveAttribute("refreshOnLoad");
+                region.SetSort(OfficeOpenXml.Table.PivotTable.eSortType.Descending, pivot.DataFields[0]);
+                Assert.AreEqual("1", ((XmlElement)pivot.CacheDefinition.TopNode).GetAttribute("refreshOnLoad"));
+                // Sort alone sorts by the labels again, and asks for the refresh too; setting the value it has does not
+                ((XmlElement)pivot.CacheDefinition.TopNode).RemoveAttribute("refreshOnLoad");
+                pivot.Fields["Product"].Sort = OfficeOpenXml.Table.PivotTable.eSortType.None;
+                Assert.AreEqual("", ((XmlElement)pivot.CacheDefinition.TopNode).GetAttribute("refreshOnLoad"));
+                region.Sort = OfficeOpenXml.Table.PivotTable.eSortType.Ascending;
+                Assert.AreEqual("1", ((XmlElement)pivot.CacheDefinition.TopNode).GetAttribute("refreshOnLoad"));
+                Assert.IsNull(region.SortDataField);
+                XmlElement after = (XmlElement)PartOf(SavedBytes(p), "xl/pivotTables/pivotTable1.xml", out ns).SelectSingleNode("d:pivotFields/d:pivotField[1]", ns);
+                Assert.AreEqual("ascending", after.GetAttribute("sortType"));
+                Assert.IsNull(after.SelectSingleNode("d:autoSortScope", ns));
+                // the data field taken away: nothing to sort by
+                region.SetSort(OfficeOpenXml.Table.PivotTable.eSortType.Descending, pivot.DataFields[0]);
+                pivot.DataFields.Remove(pivot.DataFields[0]);
+                after = (XmlElement)PartOf(SavedBytes(p), "xl/pivotTables/pivotTable1.xml", out ns).SelectSingleNode("d:pivotFields/d:pivotField[1]", ns);
+                Assert.IsNull(after.SelectSingleNode("d:autoSortScope", ns));
+                Assert.IsNull(region.SortDataField);
+            }
+        }
+
         // #34 (B5 of #8): saving and loading with asynchronous input and output.
         // A stream like the response of a web server that does not allow synchronous input and output: every synchronous read,
         // write and flush throws.
