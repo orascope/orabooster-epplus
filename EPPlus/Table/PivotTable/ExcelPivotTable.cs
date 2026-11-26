@@ -180,7 +180,7 @@ namespace OfficeOpenXml.Table.PivotTable
         }
         private void init()
         {
-            SchemaNodeOrder = new string[] { "location", "pivotFields", "rowFields", "rowItems", "colFields", "colItems", "pageFields", "pageItems", "dataFields", "dataItems", "formats", "pivotTableStyleInfo" };
+            SchemaNodeOrder = new string[] { "location", "pivotFields", "rowFields", "rowItems", "colFields", "colItems", "pageFields", "pageItems", "dataFields", "dataItems", "formats", "conditionalFormats", "chartFormats", "pivotHierarchies", "pivotTableStyleInfo", "filters", "rowHierarchiesUsage", "colHierarchiesUsage", "extLst" }; // orabooster-epplus (issue #60): the rest of CT_pivotTableDefinition, so that filters is put before the extLst of a loaded pivot table
         }
         private void LoadFields()
         {

@@ -2006,6 +2006,174 @@ namespace EPPlusTest
             }
         }
 
+        // #60 (B2 of #8, part 3): label filters and value filters of a pivot field.
+        static string FilterXml(XmlElement a_filter)
+        {
+            // the filter as a short text: type, attributes that matter, and what its autoFilter column holds
+            var column = a_filter.SelectSingleNode("*[local-name()='autoFilter']/*[local-name()='filterColumn']");
+            string inner = System.Text.RegularExpressions.Regex.Replace(column.InnerXml, " xmlns=\"[^\"]*\"", "");
+            return a_filter.GetAttribute("type") + "|" + a_filter.GetAttribute("stringValue1") + "|" + a_filter.GetAttribute("stringValue2") + "|" + a_filter.GetAttribute("iMeasureFld") + "|" + inner;
+        }
+
+        [TestMethod]
+        public void Pivot_label_and_value_filters_are_written_as_Excel_writes_them()
+        {
+            // what Excel 16 wrote for each kind (a workbook with one pivot table for every XlPivotFilterType)
+            var labels = new System.Collections.Generic.Dictionary<OfficeOpenXml.Table.PivotTable.ePivotLabelFilter, string>
+            {
+                { OfficeOpenXml.Table.PivotTable.ePivotLabelFilter.Equals, "captionEqual|So|||<filters><filter val=\"So\" /></filters>" },
+                { OfficeOpenXml.Table.PivotTable.ePivotLabelFilter.NotEquals, "captionNotEqual|So|||<customFilters><customFilter operator=\"notEqual\" val=\"So\" /></customFilters>" },
+                { OfficeOpenXml.Table.PivotTable.ePivotLabelFilter.BeginsWith, "captionBeginsWith|So|||<customFilters><customFilter val=\"So*\" /></customFilters>" },
+                { OfficeOpenXml.Table.PivotTable.ePivotLabelFilter.NotBeginsWith, "captionNotBeginsWith|So|||<customFilters><customFilter operator=\"notEqual\" val=\"So*\" /></customFilters>" },
+                { OfficeOpenXml.Table.PivotTable.ePivotLabelFilter.EndsWith, "captionEndsWith|So|||<customFilters><customFilter val=\"*So\" /></customFilters>" },
+                { OfficeOpenXml.Table.PivotTable.ePivotLabelFilter.NotEndsWith, "captionNotEndsWith|So|||<customFilters><customFilter operator=\"notEqual\" val=\"*So\" /></customFilters>" },
+                { OfficeOpenXml.Table.PivotTable.ePivotLabelFilter.Contains, "captionContains|So|||<customFilters><customFilter val=\"*So*\" /></customFilters>" },
+                { OfficeOpenXml.Table.PivotTable.ePivotLabelFilter.NotContains, "captionNotContains|So|||<customFilters><customFilter operator=\"notEqual\" val=\"*So*\" /></customFilters>" },
+                { OfficeOpenXml.Table.PivotTable.ePivotLabelFilter.GreaterThan, "captionGreaterThan|So|||<customFilters><customFilter operator=\"greaterThan\" val=\"So\" /></customFilters>" },
+                { OfficeOpenXml.Table.PivotTable.ePivotLabelFilter.GreaterThanOrEqual, "captionGreaterThanOrEqual|So|||<customFilters><customFilter operator=\"greaterThanOrEqual\" val=\"So\" /></customFilters>" },
+                { OfficeOpenXml.Table.PivotTable.ePivotLabelFilter.LessThan, "captionLessThan|So|||<customFilters><customFilter operator=\"lessThan\" val=\"So\" /></customFilters>" },
+                { OfficeOpenXml.Table.PivotTable.ePivotLabelFilter.LessThanOrEqual, "captionLessThanOrEqual|So|||<customFilters><customFilter operator=\"lessThanOrEqual\" val=\"So\" /></customFilters>" },
+            };
+            var values = new System.Collections.Generic.Dictionary<OfficeOpenXml.Table.PivotTable.ePivotValueFilter, string>
+            {
+                { OfficeOpenXml.Table.PivotTable.ePivotValueFilter.Equals, "valueEqual|||1|<customFilters><customFilter val=\"100\" /></customFilters>" },
+                { OfficeOpenXml.Table.PivotTable.ePivotValueFilter.NotEquals, "valueNotEqual|||1|<customFilters><customFilter operator=\"notEqual\" val=\"100\" /></customFilters>" },
+                { OfficeOpenXml.Table.PivotTable.ePivotValueFilter.GreaterThan, "valueGreaterThan|||1|<customFilters><customFilter operator=\"greaterThan\" val=\"100\" /></customFilters>" },
+                { OfficeOpenXml.Table.PivotTable.ePivotValueFilter.GreaterThanOrEqual, "valueGreaterThanOrEqual|||1|<customFilters><customFilter operator=\"greaterThanOrEqual\" val=\"100\" /></customFilters>" },
+                { OfficeOpenXml.Table.PivotTable.ePivotValueFilter.LessThan, "valueLessThan|||1|<customFilters><customFilter operator=\"lessThan\" val=\"100\" /></customFilters>" },
+                { OfficeOpenXml.Table.PivotTable.ePivotValueFilter.LessThanOrEqual, "valueLessThanOrEqual|||1|<customFilters><customFilter operator=\"lessThanOrEqual\" val=\"100\" /></customFilters>" },
+                { OfficeOpenXml.Table.PivotTable.ePivotValueFilter.TopCount, "count|||1|<top10 val=\"100\" filterVal=\"100\" />" },
+                { OfficeOpenXml.Table.PivotTable.ePivotValueFilter.BottomCount, "count|||1|<top10 top=\"0\" val=\"100\" filterVal=\"100\" />" },
+                { OfficeOpenXml.Table.PivotTable.ePivotValueFilter.TopPercent, "percent|||1|<top10 percent=\"1\" val=\"100\" filterVal=\"100\" />" },
+                { OfficeOpenXml.Table.PivotTable.ePivotValueFilter.BottomPercent, "percent|||1|<top10 top=\"0\" percent=\"1\" val=\"100\" filterVal=\"100\" />" },
+                { OfficeOpenXml.Table.PivotTable.ePivotValueFilter.TopSum, "sum|||1|<top10 val=\"100\" filterVal=\"100\" />" },
+                { OfficeOpenXml.Table.PivotTable.ePivotValueFilter.BottomSum, "sum|||1|<top10 top=\"0\" val=\"100\" filterVal=\"100\" />" },
+            };
+            using (var p = PivotSourcePackage())
+            {
+                var data = p.Workbook.Worksheets["Data"];
+                var ws = p.Workbook.Worksheets["Pivot"];
+                var pivot = ws.PivotTables.Add(ws.Cells["A3"], data.Cells["A1:D9"], "PT1");
+                var region = pivot.Fields["Region"];
+                pivot.RowFields.Add(region);
+                pivot.DataFields.Add(pivot.Fields["Qty"]);
+                var sales = pivot.DataFields.Add(pivot.Fields["Sales"]);
+                Assert.IsNull(region.LabelFilter);
+                Assert.IsNull(region.ValueFilter);
+                Func<XmlElement> only = () => (XmlElement)pivot.TopNode.SelectSingleNode("d:filters/d:filter", pivot.NameSpaceManager);
+
+                foreach (var pair in labels)
+                {
+                    region.SetLabelFilter(pair.Key, "So");
+                    Assert.AreEqual(pair.Value, FilterXml(only()), pair.Key.ToString());
+                    Assert.AreEqual(pair.Key, region.LabelFilter.LabelType);
+                    Assert.AreEqual("So", region.LabelFilter.Text1);
+                    Assert.IsFalse(region.LabelFilter.IsValueFilter);
+                    Assert.AreEqual(1, pivot.TopNode.SelectNodes("d:filters/d:filter", pivot.NameSpaceManager).Count, "a field has one label filter");
+                }
+                region.SetLabelFilter(OfficeOpenXml.Table.PivotTable.ePivotLabelFilter.Between, "E", "S");
+                Assert.AreEqual("captionBetween|E|S||<customFilters and=\"1\"><customFilter operator=\"greaterThanOrEqual\" val=\"E\" /><customFilter operator=\"lessThanOrEqual\" val=\"S\" /></customFilters>", FilterXml(only()));
+                region.SetLabelFilter(OfficeOpenXml.Table.PivotTable.ePivotLabelFilter.NotBetween, "E", "S");
+                Assert.AreEqual("captionNotBetween|E|S||<customFilters><customFilter operator=\"lessThan\" val=\"E\" /><customFilter operator=\"greaterThan\" val=\"S\" /></customFilters>", FilterXml(only()));
+                Assert.AreEqual("S", region.LabelFilter.Text2);
+                // a star, a question mark and a tilde of the text are those characters, not wildcards
+                region.SetLabelFilter(OfficeOpenXml.Table.PivotTable.ePivotLabelFilter.Contains, "a*b?c~");
+                Assert.AreEqual("captionContains|a*b?c~|||<customFilters><customFilter val=\"*a~*b~?c~~*\" /></customFilters>", FilterXml(only()));
+                Assert.ThrowsException<ArgumentNullException>(() => region.SetLabelFilter(OfficeOpenXml.Table.PivotTable.ePivotLabelFilter.Between, "E"));
+                Assert.ThrowsException<ArgumentException>(() => region.SetLabelFilter(OfficeOpenXml.Table.PivotTable.ePivotLabelFilter.Equals, "E", "S"));
+                region.ClearLabelFilter();
+                Assert.IsNull(pivot.TopNode.SelectSingleNode("d:filters", pivot.NameSpaceManager), "the last filter gone: no filters element");
+                Assert.IsNull(region.LabelFilter);
+
+                foreach (var pair in values)
+                {
+                    region.SetValueFilter(pair.Key, sales, 100);
+                    Assert.AreEqual(pair.Value, FilterXml(only()), pair.Key.ToString());
+                    Assert.AreEqual(pair.Key, region.ValueFilter.ValueType);
+                    Assert.AreEqual(100d, region.ValueFilter.Value1);
+                    Assert.AreSame(sales, region.ValueFilter.DataField);
+                    Assert.IsTrue(region.ValueFilter.IsValueFilter);
+                    Assert.AreEqual("1", ((XmlElement)region.TopNode).GetAttribute("measureFilter"));
+                }
+                region.SetValueFilter(OfficeOpenXml.Table.PivotTable.ePivotValueFilter.Between, sales, 90, 130.5);
+                Assert.AreEqual("valueBetween|||1|<customFilters and=\"1\"><customFilter operator=\"greaterThanOrEqual\" val=\"90\" /><customFilter operator=\"lessThanOrEqual\" val=\"130.5\" /></customFilters>", FilterXml(only()));
+                region.SetValueFilter(OfficeOpenXml.Table.PivotTable.ePivotValueFilter.NotBetween, sales, 90, 130);
+                Assert.AreEqual("valueNotBetween|||1|<customFilters><customFilter operator=\"lessThan\" val=\"90\" /><customFilter operator=\"greaterThan\" val=\"130\" /></customFilters>", FilterXml(only()));
+                Assert.AreEqual(130d, region.ValueFilter.Value2);
+                Assert.ThrowsException<ArgumentOutOfRangeException>(() => region.SetValueFilter(OfficeOpenXml.Table.PivotTable.ePivotValueFilter.TopCount, sales, 0));
+                Assert.ThrowsException<ArgumentOutOfRangeException>(() => region.SetValueFilter(OfficeOpenXml.Table.PivotTable.ePivotValueFilter.TopCount, sales, 2.5));
+                Assert.ThrowsException<ArgumentOutOfRangeException>(() => region.SetValueFilter(OfficeOpenXml.Table.PivotTable.ePivotValueFilter.TopPercent, sales, 101));
+                Assert.ThrowsException<ArgumentNullException>(() => region.SetValueFilter(OfficeOpenXml.Table.PivotTable.ePivotValueFilter.Between, sales, 1));
+                Assert.ThrowsException<ArgumentNullException>(() => region.SetValueFilter(OfficeOpenXml.Table.PivotTable.ePivotValueFilter.Equals, null, 1));
+                region.ClearValueFilter();
+                Assert.AreEqual("", ((XmlElement)region.TopNode).GetAttribute("measureFilter"));
+                Assert.IsNull(pivot.TopNode.SelectSingleNode("d:filters", pivot.NameSpaceManager));
+            }
+        }
+
+        [TestMethod]
+        public void Pivot_filters_are_saved_read_and_follow_their_data_field()
+        {
+            XmlNamespaceManager ns;
+            byte[] bytes;
+            using (var p = PivotSourcePackage())
+            {
+                var data = p.Workbook.Worksheets["Data"];
+                var ws = p.Workbook.Worksheets["Pivot"];
+                var pivot = ws.PivotTables.Add(ws.Cells["A3"], data.Cells["A1:D9"], "PT1");
+                var region = pivot.Fields["Region"];
+                var product = pivot.Fields["Product"];
+                pivot.RowFields.Add(region);
+                pivot.RowFields.Add(product);
+                var qty = pivot.DataFields.Add(pivot.Fields["Qty"]);
+                var sales = pivot.DataFields.Add(pivot.Fields["Sales"]);
+                product.SetLabelFilter(OfficeOpenXml.Table.PivotTable.ePivotLabelFilter.BeginsWith, "P1");
+                region.SetValueFilter(OfficeOpenXml.Table.PivotTable.ePivotValueFilter.GreaterThan, sales, 100);
+                Assert.IsFalse(pivot.MultipleFieldFilters);
+                // a label filter and a value filter on one field: several filters for a field are allowed then
+                region.SetLabelFilter(OfficeOpenXml.Table.PivotTable.ePivotLabelFilter.NotEquals, "West");
+                Assert.IsTrue(pivot.MultipleFieldFilters);
+                pivot.DataFields.Remove(qty);   // the data field of the value filter is the first one now
+                bytes = SavedBytes(p);
+            }
+            XmlElement table = PartOf(bytes, "xl/pivotTables/pivotTable1.xml", out ns);
+            var filters = (XmlElement)table.SelectSingleNode("d:filters", ns);
+            Assert.AreEqual("3", filters.GetAttribute("count"));
+            Assert.AreEqual("pivotTableStyleInfo", filters.PreviousSibling.LocalName);
+            var list = filters.SelectNodes("d:filter", ns).OfType<XmlElement>().ToList();
+            CollectionAssert.AreEqual(new[] { "1|captionBeginsWith|1|-1|", "0|valueGreaterThan|2|-1|0", "0|captionNotEqual|3|-1|" },
+                list.Select(f => f.GetAttribute("fld") + "|" + f.GetAttribute("type") + "|" + f.GetAttribute("id") + "|" + f.GetAttribute("evalOrder") + "|" + f.GetAttribute("iMeasureFld")).ToArray());
+            Assert.AreEqual("A1", list[0].SelectSingleNode("d:autoFilter/@ref", ns).Value);
+            Assert.AreEqual("0", list[0].SelectSingleNode("d:autoFilter/d:filterColumn/@colId", ns).Value);
+            Assert.AreEqual("1", table.SelectSingleNode("d:pivotFields/d:pivotField[1]/@measureFilter", ns).Value);
+            Assert.AreEqual("1", table.GetAttribute("multipleFieldFilters"));
+
+            using (var p = new ExcelPackage(new MemoryStream(bytes)))
+            {
+                var pivot = p.Workbook.Worksheets["Pivot"].PivotTables["PT1"];
+                var region = pivot.Fields["Region"];
+                Assert.AreEqual(OfficeOpenXml.Table.PivotTable.ePivotLabelFilter.NotEquals, region.LabelFilter.LabelType);
+                Assert.AreEqual("West", region.LabelFilter.Text1);
+                Assert.AreEqual(OfficeOpenXml.Table.PivotTable.ePivotValueFilter.GreaterThan, region.ValueFilter.ValueType);
+                Assert.AreEqual(100d, region.ValueFilter.Value1);
+                Assert.AreSame(pivot.DataFields[0], region.ValueFilter.DataField);
+                Assert.AreEqual("P1", pivot.Fields["Product"].LabelFilter.Text1);
+                Assert.IsNull(pivot.Fields["Product"].ValueFilter);
+                // read and saved: the filters as they were
+                Assert.AreEqual(filters.OuterXml, PartOf(SavedBytes(p), "xl/pivotTables/pivotTable1.xml", out ns).SelectSingleNode("d:filters", ns).OuterXml);
+                // a loaded cache that is not refreshed on load is, once a filter is set
+                ((XmlElement)pivot.CacheDefinition.TopNode).RemoveAttribute("refreshOnLoad");
+                region.ClearLabelFilter();
+                Assert.AreEqual("1", ((XmlElement)pivot.CacheDefinition.TopNode).GetAttribute("refreshOnLoad"));
+                // the data field of a value filter set here taken away: the filter goes with it
+                region.SetValueFilter(OfficeOpenXml.Table.PivotTable.ePivotValueFilter.TopCount, pivot.DataFields[0], 2);
+                pivot.DataFields.Remove(pivot.DataFields[0]);
+                table = PartOf(SavedBytes(p), "xl/pivotTables/pivotTable1.xml", out ns);
+                CollectionAssert.AreEqual(new[] { "captionBeginsWith" }, table.SelectNodes("d:filters/d:filter/@type", ns).OfType<XmlNode>().Select(n => n.Value).ToArray());
+                Assert.IsNull(table.SelectSingleNode("d:pivotFields/d:pivotField[1]/@measureFilter", ns));
+            }
+        }
+
         // #34 (B5 of #8): saving and loading with asynchronous input and output.
         // A stream like the response of a web server that does not allow synchronous input and output: every synchronous read,
         // write and flush throws.

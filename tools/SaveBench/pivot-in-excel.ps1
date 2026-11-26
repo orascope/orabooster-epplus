@@ -9,6 +9,9 @@ $xl.Visible = $false
 $xl.DisplayAlerts = $false
 try {
     try { $wb = $xl.Workbooks.Open($Path) } catch { "{0}: DID NOT OPEN" -f (Split-Path $Path -Leaf); exit 1 }
+    # Excel refreshes the pivot tables when it opens the workbook and rejects calls while it is busy ("Call was rejected by
+    # callee"): wait until it is ready, or the pivot tables are not listed.
+    for ($i = 0; $i -lt 100; $i++) { try { if ($xl.Ready) { break } } catch { }; Start-Sleep -Milliseconds 300 }
     "{0}: opened" -f (Split-Path $Path -Leaf)
     foreach ($ws in $wb.Worksheets) {
         foreach ($pt in $ws.PivotTables()) {
