@@ -266,6 +266,31 @@ static class Issues
             }
         }
 
+        // #48 (B1 of #8): slicers of a table. issue48_slicers.xlsx: the table SalesTable on Data (A1:C9), a slicer of Region at
+        // E1 with East selected (the table shows 2 of 8 rows), a slicer of Product at I1 with the style SlicerStyleDark1, two
+        // columns of buttons and the caption Products, and on the sheet Other a second slicer of Region. slicer-in-excel.ps1
+        // prints what Excel reads.
+        {
+            using (var p = new ExcelPackage())
+            {
+                var ws = p.Workbook.Worksheets.Add("Data");
+                ws.Cells["A1"].Value = "Region"; ws.Cells["B1"].Value = "Product"; ws.Cells["C1"].Value = "Sales";
+                string[] regions = { "North", "South", "East", "West" };
+                for (int r = 2; r <= 9; r++) { ws.Cells[r, 1].Value = regions[(r - 2) % 4]; ws.Cells[r, 2].Value = "P" + (r % 3); ws.Cells[r, 3].Value = r * 10; }
+                var table = ws.Tables.Add(ws.Cells["A1:C9"], "SalesTable");
+                var region = ws.Drawings.AddTableSlicer(table.Columns["Region"]);
+                region.SetPosition(0, 0, 4, 0);
+                region.Select("East");
+                var product = ws.Drawings.AddTableSlicer(table.Columns["Product"]);
+                product.SetPosition(0, 0, 8, 0);
+                product.Style = "SlicerStyleDark1";
+                product.ColumnCount = 2;
+                product.Caption = "Products";
+                p.Workbook.Worksheets.Add("Other").Drawings.AddTableSlicer(table.Columns["Region"]);
+                p.SaveAs(new FileInfo(Path.Combine(a_dir, "issue48_slicers.xlsx")));
+            }
+        }
+
         // #35: encrypted workbooks, password "orabooster": standard and agile encryption. open-in-excel.ps1 opens the files whose
         // names start with issue35_encrypted with that password; Excel must show 200 rows.
         foreach (EncryptionVersion version in new[] { EncryptionVersion.Standard, EncryptionVersion.Agile })

@@ -418,6 +418,8 @@ namespace OfficeOpenXml
         /// The Uri to the worksheet within the package
         /// </summary>
         internal Uri WorksheetUri { get { return (_worksheetUri); } }
+        // orabooster-epplus (item B1 of issue #8, issue #48): the slicer parts of the sheet, read once when a slicer asks for them
+        internal List<OfficeOpenXml.Drawing.ExcelTableSlicer.SlicerPart> _slicerParts;
         /// <summary>
         /// The Zip.ZipPackagePart for the worksheet within the package
         /// </summary>

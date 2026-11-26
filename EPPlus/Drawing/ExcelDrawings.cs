@@ -333,6 +333,23 @@ namespace OfficeOpenXml.Drawing
                 return chart;
             }
             /// <summary>
+            /// orabooster-epplus (item B1 of issue #8, issue #48): adds a slicer of a table column to the worksheet: buttons with
+            /// the values of the column, which filter the table. The table may be on another worksheet. The drawing and the
+            /// slicer are named after the column ("Region", then "Region 1" and so on). Excel 2013 and later show it.
+            /// </summary>
+            /// <param name="column">The column of the table</param>
+            /// <returns>The slicer</returns>
+            public ExcelTableSlicer AddTableSlicer(OfficeOpenXml.Table.ExcelTableColumn column)
+            {
+                if (column == null) throw new ArgumentNullException("column");
+                if (Worksheet is ExcelChartsheet) throw new NotSupportedException("A chart sheet can not hold a slicer");
+                XmlElement drawNode = CreateDrawingXml();
+                var slicer = new ExcelTableSlicer(this, drawNode, column);
+                _drawings.Add(slicer);
+                if (!_drawingNames.ContainsKey(slicer.Name)) _drawingNames.Add(slicer.Name, _drawings.Count - 1);
+                return slicer;
+            }
+            /// <summary>
             /// Add a picure to the worksheet
             /// </summary>
             /// <param name="Name"></param>

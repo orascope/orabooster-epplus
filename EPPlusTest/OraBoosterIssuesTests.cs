@@ -1553,6 +1553,203 @@ namespace EPPlusTest
             Assert.AreEqual("4", anchors[1].SelectSingleNode("xdr:from/xdr:col", ns).InnerText);
         }
 
+        // #48 (B1 of #8): slicers of tables.
+        static ExcelPackage SalesPackage()
+        {
+            var p = new ExcelPackage();
+            var ws = p.Workbook.Worksheets.Add("Data");
+            ws.Cells["A1"].Value = "Region"; ws.Cells["B1"].Value = "Product"; ws.Cells["C1"].Value = "Sales";
+            string[] regions = { "North", "South", "East", "West" };
+            for (int r = 2; r <= 9; r++) { ws.Cells[r, 1].Value = regions[(r - 2) % 4]; ws.Cells[r, 2].Value = "P" + (r % 3); ws.Cells[r, 3].Value = r * 10; }
+            ws.Tables.Add(ws.Cells["A1:C9"], "SalesTable");
+            return p;
+        }
+
+        static XmlNamespaceManager SlicerNs(XmlElement a_root)
+        {
+            var ns = new XmlNamespaceManager(a_root.OwnerDocument.NameTable);
+            ns.AddNamespace("d", "http://schemas.openxmlformats.org/spreadsheetml/2006/main");
+            ns.AddNamespace("x14", "http://schemas.microsoft.com/office/spreadsheetml/2009/9/main");
+            ns.AddNamespace("x15", "http://schemas.microsoft.com/office/spreadsheetml/2010/11/main");
+            ns.AddNamespace("r", "http://schemas.openxmlformats.org/officeDocument/2006/relationships");
+            ns.AddNamespace("rel", "http://schemas.openxmlformats.org/package/2006/relationships");
+            ns.AddNamespace("ct", "http://schemas.openxmlformats.org/package/2006/content-types");
+            ns.AddNamespace("xdr", "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing");
+            ns.AddNamespace("a", "http://schemas.openxmlformats.org/drawingml/2006/main");
+            ns.AddNamespace("mc", "http://schemas.openxmlformats.org/markup-compatibility/2006");
+            ns.AddNamespace("sle", "http://schemas.microsoft.com/office/drawing/2010/slicer");
+            return ns;
+        }
+
+        static XmlElement Part(byte[] a_package, string a_entry, out XmlNamespaceManager a_ns)
+        {
+            XmlNamespaceManager ignored;
+            XmlElement root = PartOf(a_package, a_entry, out ignored);
+            a_ns = SlicerNs(root);
+            return root;
+        }
+
+        static string[] Entries(byte[] a_package)
+        {
+            using (var zip = new System.IO.Compression.ZipArchive(new MemoryStream(a_package))) return zip.Entries.Select(e => e.FullName).OrderBy(n => n, StringComparer.Ordinal).ToArray();
+        }
+
+        [TestMethod]
+        public void Table_slicer_is_written_as_Excel_writes_it()
+        {
+            XmlNamespaceManager ns;
+            byte[] bytes;
+            using (var p = SalesPackage())
+            {
+                var ws = p.Workbook.Worksheets["Data"];
+                var table = ws.Tables[0];
+                var slicer = ws.Drawings.AddTableSlicer(table.Columns["Region"]);
+                Assert.AreEqual("Region", slicer.Name);
+                Assert.AreEqual("Region", slicer.SlicerName);
+                Assert.AreEqual("Slicer_Region", slicer.CacheName);
+                Assert.AreSame(table, slicer.Table);
+                Assert.AreEqual("Region", slicer.TableColumn.Name);
+                Assert.AreEqual("Region", slicer.Caption);
+                Assert.AreEqual(1, slicer.ColumnCount);
+                Assert.IsTrue(slicer.ShowCaption);
+                Assert.AreEqual(241300, slicer.RowHeight);
+                Assert.IsNull(slicer.Style);
+                Assert.AreEqual(0, slicer.SelectedItems.Length);
+                slicer.SetPosition(0, 0, 4, 0);
+                slicer.Select("East");
+                CollectionAssert.AreEqual(new[] { "East" }, slicer.SelectedItems);
+                // a second slicer of the same column, on another sheet: its own names and cache
+                var other = p.Workbook.Worksheets.Add("Other").Drawings.AddTableSlicer(table.Columns["Region"]);
+                Assert.AreEqual("Region 1", other.Name);
+                Assert.AreEqual("Slicer_Region1", other.CacheName);
+                Assert.ThrowsException<ArgumentNullException>(() => ws.Drawings.AddTableSlicer(null));
+                bytes = SavedBytes(p);
+            }
+            string[] entries = Entries(bytes);
+            CollectionAssert.IsSubsetOf(new[] { "xl/slicerCaches/slicerCache1.xml", "xl/slicerCaches/slicerCache2.xml", "xl/slicers/slicer1.xml", "xl/slicers/slicer2.xml" }, entries);
+
+            XmlElement types = Part(bytes, "[Content_Types].xml", out ns);
+            Assert.AreEqual("application/vnd.ms-excel.slicerCache+xml", types.SelectSingleNode("ct:Override[@PartName='/xl/slicerCaches/slicerCache1.xml']/@ContentType", ns).Value);
+            Assert.AreEqual("application/vnd.ms-excel.slicer+xml", types.SelectSingleNode("ct:Override[@PartName='/xl/slicers/slicer1.xml']/@ContentType", ns).Value);
+
+            // the workbook: the caches related and listed, and their defined names
+            XmlElement wbRels = Part(bytes, "xl/_rels/workbook.xml.rels", out ns);
+            var cacheRels = wbRels.SelectNodes("rel:Relationship[@Type='http://schemas.microsoft.com/office/2007/relationships/slicerCache']", ns).OfType<XmlElement>().ToList();
+            Assert.AreEqual(2, cacheRels.Count);
+            XmlElement workbook = Part(bytes, "xl/workbook.xml", out ns);
+            var listed = workbook.SelectNodes("d:extLst/d:ext[@uri='{46BE6895-7355-4a93-B00E-2C351335B9C9}']/x15:slicerCaches/x14:slicerCache/@r:id", ns).OfType<XmlNode>().Select(n => n.Value).ToArray();
+            CollectionAssert.AreEquivalent(cacheRels.Select(r => r.GetAttribute("Id")).ToArray(), listed);
+            Assert.AreEqual("#N/A", workbook.SelectSingleNode("d:definedNames/d:definedName[@name='Slicer_Region']", ns).InnerText);
+            Assert.AreEqual("#N/A", workbook.SelectSingleNode("d:definedNames/d:definedName[@name='Slicer_Region1']", ns).InnerText);
+            Assert.AreEqual("extLst", workbook.LastChild.LocalName);
+
+            XmlElement cache = Part(bytes, "xl/slicerCaches/slicerCache1.xml", out ns);
+            Assert.AreEqual("slicerCacheDefinition", cache.LocalName);
+            Assert.AreEqual("Slicer_Region", cache.GetAttribute("name"));
+            Assert.AreEqual("Region", cache.GetAttribute("sourceName"));
+            var tableCache = (XmlElement)cache.SelectSingleNode("x14:extLst/d:ext[@uri='{2F2917AC-EB37-4324-AD4E-5DD8C200BD13}']/x15:tableSlicerCache", ns);
+            Assert.AreEqual("1", tableCache.GetAttribute("tableId"));
+            Assert.AreEqual("1", tableCache.GetAttribute("column"));
+
+            // the worksheet: its slicer part related and listed, the slicer element
+            XmlElement sheetRels = Part(bytes, "xl/worksheets/_rels/sheet1.xml.rels", out ns);
+            var slicerRel = (XmlElement)sheetRels.SelectSingleNode("rel:Relationship[@Type='http://schemas.microsoft.com/office/2007/relationships/slicer']", ns);
+            Assert.AreEqual("../slicers/slicer1.xml", slicerRel.GetAttribute("Target"));
+            XmlElement sheet = Part(bytes, "xl/worksheets/sheet1.xml", out ns);
+            Assert.AreEqual(slicerRel.GetAttribute("Id"), sheet.SelectSingleNode("d:extLst/d:ext[@uri='{3A4CF648-6AED-40f4-86FF-DC5316D8AED3}']/x14:slicerList/x14:slicer/@r:id", ns).Value);
+            Assert.AreEqual("extLst", sheet.LastChild.LocalName);
+            XmlElement slicers = Part(bytes, "xl/slicers/slicer1.xml", out ns);
+            var s = (XmlElement)slicers.SelectSingleNode("x14:slicer", ns);
+            CollectionAssert.AreEqual(new[] { "name=Region", "cache=Slicer_Region", "caption=Region", "rowHeight=241300" },
+                s.Attributes.Cast<XmlAttribute>().Select(a => a.Name + "=" + a.Value).ToArray());
+
+            // the drawing: absolute, the slicer for Excel 2013 and later, a text box for older versions
+            XmlElement drawing = Part(bytes, "xl/drawings/drawing1.xml", out ns);
+            var anchor = (XmlElement)drawing.SelectSingleNode("xdr:twoCellAnchor", ns);
+            Assert.AreEqual("absolute", anchor.GetAttribute("editAs"));
+            Assert.AreEqual("sle15", ((XmlElement)anchor.SelectSingleNode("mc:AlternateContent/mc:Choice", ns)).GetAttribute("Requires"));
+            Assert.AreEqual("Region", anchor.SelectSingleNode("mc:AlternateContent/mc:Choice/xdr:graphicFrame/a:graphic/a:graphicData[@uri='http://schemas.microsoft.com/office/drawing/2010/slicer']/sle:slicer/@name", ns).Value);
+            Assert.AreNotEqual("0", anchor.SelectSingleNode("mc:AlternateContent/mc:Choice/xdr:graphicFrame/xdr:nvGraphicFramePr/xdr:cNvPr/@id", ns).Value);
+            Assert.IsNotNull(anchor.SelectSingleNode("mc:AlternateContent/mc:Fallback/xdr:sp", ns));
+            Assert.AreEqual("4", anchor.SelectSingleNode("xdr:from/xdr:col", ns).InnerText);
+
+            // what is selected is the filter of the table column
+            XmlElement tableXml = Part(bytes, "xl/tables/table1.xml", out ns);
+            Assert.AreEqual("East", tableXml.SelectSingleNode("d:autoFilter/d:filterColumn[@colId='0']/d:filters/d:filter/@val", ns).Value);
+        }
+
+        [TestMethod]
+        public void Table_slicer_is_loaded_changed_and_removed()
+        {
+            XmlNamespaceManager ns;
+            byte[] bytes;
+            using (var p = SalesPackage())
+            {
+                var ws = p.Workbook.Worksheets["Data"];
+                ws.Drawings.AddTableSlicer(ws.Tables[0].Columns["Region"]).Select("East", "West");
+                ws.Drawings.AddTableSlicer(ws.Tables[0].Columns["Product"]);
+                bytes = SavedBytes(p);
+            }
+            // loaded and saved with no change: every part as it was
+            using (var p = new ExcelPackage(new MemoryStream(bytes)))
+            {
+                var found = p.Workbook.Worksheets["Data"].Drawings.OfType<OfficeOpenXml.Drawing.ExcelTableSlicer>().ToList();
+                Assert.AreEqual(2, found.Count);
+                byte[] again = SavedBytes(p);
+                CollectionAssert.AreEqual(Entries(bytes), Entries(again));
+                foreach (string entry in new[] { "xl/slicers/slicer1.xml", "xl/slicerCaches/slicerCache1.xml", "xl/slicerCaches/slicerCache2.xml", "xl/drawings/drawing1.xml" })
+                {
+                    Assert.AreEqual(Part(bytes, entry, out ns).OuterXml, Part(again, entry, out ns).OuterXml, entry);
+                }
+            }
+            using (var p = new ExcelPackage(new MemoryStream(bytes)))
+            {
+                var ws = p.Workbook.Worksheets["Data"];
+                var region = ws.Drawings.OfType<OfficeOpenXml.Drawing.ExcelTableSlicer>().Single(x => x.TableColumn.Name == "Region");
+                Assert.AreEqual("Region", region.Name);
+                Assert.AreEqual("Slicer_Region", region.CacheName);
+                CollectionAssert.AreEqual(new[] { "East", "West" }, region.SelectedItems);
+                region.Caption = "Regions";
+                region.Style = "SlicerStyleDark1";
+                region.ColumnCount = 2;
+                region.ShowCaption = false;
+                region.RowHeight = 300000;
+                Assert.ThrowsException<ArgumentOutOfRangeException>(() => region.ColumnCount = 0);
+                region.ClearSelection();
+                Assert.AreEqual(0, region.SelectedItems.Length);
+                // the other slicer is removed: the slicer part stays with the one that is left, its cache and name go
+                ws.Drawings.Remove(ws.Drawings.OfType<OfficeOpenXml.Drawing.ExcelTableSlicer>().Single(x => x.TableColumn.Name == "Product"));
+                Assert.IsFalse(p.Workbook.Names.ContainsKey("Slicer_Product"));
+                bytes = SavedBytes(p);
+            }
+            XmlElement slicers = Part(bytes, "xl/slicers/slicer1.xml", out ns);
+            var left = slicers.SelectNodes("x14:slicer", ns).OfType<XmlElement>().ToList();
+            Assert.AreEqual(1, left.Count);
+            CollectionAssert.AreEquivalent(new[] { "name=Region", "cache=Slicer_Region", "caption=Regions", "rowHeight=300000", "style=SlicerStyleDark1", "columnCount=2", "showCaption=0" },
+                left[0].Attributes.Cast<XmlAttribute>().Select(a => a.Name + "=" + a.Value).ToArray());
+            Assert.AreEqual(1, Entries(bytes).Count(e => e.StartsWith("xl/slicerCaches/", StringComparison.Ordinal)));
+            XmlElement workbook = Part(bytes, "xl/workbook.xml", out ns);
+            Assert.IsNull(workbook.SelectSingleNode("d:definedNames/d:definedName[@name='Slicer_Product']", ns));
+            Assert.AreEqual(1, workbook.SelectNodes("d:extLst/d:ext/x15:slicerCaches/x14:slicerCache", ns).Count);
+            Assert.IsNull(Part(bytes, "xl/tables/table1.xml", out ns).SelectSingleNode("d:autoFilter/d:filterColumn", ns));
+
+            // the last slicer removed: the slicer part, the cache, the defined name and the ext lists go
+            using (var p = new ExcelPackage(new MemoryStream(bytes)))
+            {
+                var ws = p.Workbook.Worksheets["Data"];
+                ws.Drawings.Remove(ws.Drawings.OfType<OfficeOpenXml.Drawing.ExcelTableSlicer>().Single());
+                bytes = SavedBytes(p);
+            }
+            Assert.IsFalse(Entries(bytes).Any(e => e.StartsWith("xl/slicer", StringComparison.Ordinal)), string.Join(",", Entries(bytes)));
+            workbook = Part(bytes, "xl/workbook.xml", out ns);
+            Assert.IsNull(workbook.SelectSingleNode("d:definedNames/d:definedName[@name='Slicer_Region']", ns));
+            Assert.IsNull(workbook.SelectSingleNode("d:extLst/d:ext[@uri='{46BE6895-7355-4a93-B00E-2C351335B9C9}']", ns));
+            XmlElement sheet = Part(bytes, "xl/worksheets/sheet1.xml", out ns);
+            Assert.IsNull(sheet.SelectSingleNode("d:extLst", ns));
+            Assert.IsNull(Part(bytes, "xl/worksheets/_rels/sheet1.xml.rels", out ns).SelectSingleNode("rel:Relationship[@Type='http://schemas.microsoft.com/office/2007/relationships/slicer']", ns));
+            Assert.IsNull(Part(bytes, "xl/_rels/workbook.xml.rels", out ns).SelectSingleNode("rel:Relationship[@Type='http://schemas.microsoft.com/office/2007/relationships/slicerCache']", ns));
+        }
+
         // #34 (B5 of #8): saving and loading with asynchronous input and output.
         // A stream like the response of a web server that does not allow synchronous input and output: every synchronous read,
         // write and flush throws.
