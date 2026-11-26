@@ -507,6 +507,9 @@ namespace OfficeOpenXml.Drawing
             if (ws.ExistsValueInner(row, 0, ref o) && o != null)   //Check that the row exists
             {
                 var internalRow = (RowInternal)o;
+                // orabooster-epplus (issue #51): a hidden row has no height, as Excel places a drawing (a hidden column already
+                // has no width: ExcelColumn.VisualWidth)
+                if (internalRow.Hidden) return 0;
                 if (internalRow.Height >= 0 && internalRow.CustomHeight)
                 {
                     return internalRow.Height;
