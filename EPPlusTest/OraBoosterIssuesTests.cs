@@ -812,6 +812,293 @@ namespace EPPlusTest
             Assert.AreEqual("1", PartOf(changed, "xl/worksheets/sheet1.xml", out ns).SelectSingleNode("d:conditionalFormatting/d:cfRule/@dxfId", ns).Value);
         }
 
+        // #38 (B3 of #8): table styles that are defined in the workbook.
+        static OfficeOpenXml.Table.ExcelCustomTableStyle LedgerStyle(ExcelPackage a_package)
+        {
+            var style = a_package.Workbook.Styles.TableStyles.Add("Ledger");
+            style.WholeTable.Border.Bottom.Style = OfficeOpenXml.Style.ExcelBorderStyle.Thin;
+            style.WholeTable.Border.Bottom.Color.Color = System.Drawing.Color.FromArgb(0xBF, 0xBF, 0xBF);
+            style.HeaderRow.Font.Bold = true;
+            style.HeaderRow.Font.Color.Color = System.Drawing.Color.White;
+            style.HeaderRow.Fill.PatternType = OfficeOpenXml.Style.ExcelFillStyle.Solid;
+            style.HeaderRow.Fill.BackgroundColor.Color = System.Drawing.Color.FromArgb(0x1F, 0x4E, 0x78);
+            style.FirstRowStripe.Fill.PatternType = OfficeOpenXml.Style.ExcelFillStyle.Solid;
+            style.FirstRowStripe.Fill.BackgroundColor.Color = System.Drawing.Color.FromArgb(0xDD, 0xEB, 0xF7);
+            style.SetBandSize(OfficeOpenXml.Table.eTableStyleElement.FirstRowStripe, 2);
+            style.TotalRow.Font.Bold = true;
+            style.TotalRow.Border.Top.Style = OfficeOpenXml.Style.ExcelBorderStyle.Double;
+            style.FirstColumn.Font.Italic = true;
+            return style;
+        }
+
+        static ExcelPackage LedgerPackage()
+        {
+            var p = new ExcelPackage();
+            var ws = p.Workbook.Worksheets.Add("Styled");
+            for (int r = 1; r <= 12; r++) for (int c = 1; c <= 5; c++) ws.Cells[r, c].Value = r == 1 ? (object)("H" + c) : c == 1 ? (object)("row " + r) : r * c;
+            var table = ws.Tables.Add(ws.Cells["A1:E12"], "LedgerTable");
+            LedgerStyle(p);
+            table.StyleName = "Ledger";
+            table.ShowFirstColumn = true;
+            table.ShowRowStripes = true;
+            return p;
+        }
+
+        [TestMethod]
+        public void Custom_table_style_is_written_loaded_changed_and_removed()
+        {
+            XmlNamespaceManager ns;
+            byte[] first;
+            using (var p = LedgerPackage())
+            {
+                first = SavedBytes(p);
+                // saved once more: nothing is written a second time
+                Assert.AreEqual(PartOf(first, "xl/styles.xml", out ns).OuterXml, PartOf(SavedBytes(p), "xl/styles.xml", out ns).OuterXml);
+            }
+
+            // what is written
+            XmlElement styles = PartOf(first, "xl/styles.xml", out ns);
+            string order = string.Join(",", styles.ChildNodes.OfType<XmlElement>().Select(e => e.LocalName));
+            Assert.IsTrue(order.EndsWith("dxfs,tableStyles"), order);
+            var tableStyles = (XmlElement)styles.SelectSingleNode("d:tableStyles", ns);
+            Assert.AreEqual("1", tableStyles.GetAttribute("count"));
+            Assert.AreEqual("TableStyleMedium2", tableStyles.GetAttribute("defaultTableStyle"));
+            var tableStyle = (XmlElement)tableStyles.SelectSingleNode("d:tableStyle", ns);
+            Assert.AreEqual("Ledger", tableStyle.GetAttribute("name"));
+            Assert.AreEqual("0", tableStyle.GetAttribute("pivot"));
+            Assert.AreEqual("5", tableStyle.GetAttribute("count"));
+            CollectionAssert.AreEqual(new[] { "wholeTable", "headerRow", "firstRowStripe:2", "totalRow", "firstColumn" },
+                tableStyle.ChildNodes.OfType<XmlElement>().Select(e => e.GetAttribute("type") + (e.HasAttribute("size") ? ":" + e.GetAttribute("size") : "")).ToArray());
+            XmlNodeList dxfs = styles.SelectNodes("d:dxfs/d:dxf", ns);
+            Assert.AreEqual(5, dxfs.Count);
+            Assert.AreEqual("5", ((XmlElement)styles.SelectSingleNode("d:dxfs", ns)).GetAttribute("count"));
+            int headerDxf = int.Parse(((XmlElement)tableStyle.SelectSingleNode("d:tableStyleElement[@type='headerRow']", ns)).GetAttribute("dxfId"));
+            XmlNode header = dxfs[headerDxf];
+            Assert.IsNotNull(header.SelectSingleNode("d:font/d:b", ns));
+            Assert.AreEqual("ffffffff", header.SelectSingleNode("d:font/d:color/@rgb", ns).Value);
+            Assert.AreEqual("ff1f4e78", header.SelectSingleNode("d:fill/d:patternFill/d:bgColor/@rgb", ns).Value);
+            XmlElement tableXml = PartOf(first, "xl/tables/table1.xml", out ns);
+            Assert.AreEqual("Ledger", tableXml.SelectSingleNode("d:tableStyleInfo/@name", ns).Value);
+
+            // loaded: the style is there with its formats
+            byte[] untouched, changed, removed;
+            using (var p = new ExcelPackage(new MemoryStream(first)))
+            {
+                Assert.AreEqual(OfficeOpenXml.Table.TableStyles.Custom, p.Workbook.Worksheets["Styled"].Tables[0].TableStyle);
+                Assert.AreEqual("Ledger", p.Workbook.Worksheets["Styled"].Tables[0].StyleName);
+                var all = p.Workbook.Styles.TableStyles;
+                Assert.AreEqual(1, all.Count);
+                var style = all["ledger"];
+                Assert.AreSame(all[0], style);
+                Assert.AreEqual(true, style.HeaderRow.Font.Bold);
+                Assert.AreEqual(System.Drawing.Color.FromArgb(0x1F, 0x4E, 0x78).ToArgb(), style.HeaderRow.Fill.BackgroundColor.Color.Value.ToArgb());
+                Assert.AreEqual(OfficeOpenXml.Style.ExcelBorderStyle.Double, style.TotalRow.Border.Top.Style);
+                Assert.AreEqual(2, style.GetBandSize(OfficeOpenXml.Table.eTableStyleElement.FirstRowStripe));
+                Assert.AreEqual(1, style.GetBandSize(OfficeOpenXml.Table.eTableStyleElement.SecondRowStripe));
+                Assert.IsTrue(style.HasElement(OfficeOpenXml.Table.eTableStyleElement.FirstColumn));
+                Assert.IsFalse(style.HasElement(OfficeOpenXml.Table.eTableStyleElement.SecondRowStripe));
+                Assert.IsFalse(style.HasElement(OfficeOpenXml.Table.eTableStyleElement.LastColumn));
+                untouched = SavedBytes(p);
+            }
+            // looked at but not changed: the styles part is written as it was
+            XmlElement again = PartOf(untouched, "xl/styles.xml", out ns);
+            Assert.AreEqual(tableStyles.OuterXml, again.SelectSingleNode("d:tableStyles", ns).OuterXml);
+            Assert.AreEqual(5, again.SelectNodes("d:dxfs/d:dxf", ns).Count);
+
+            // changed: one part gets a new dxf at the end, the other parts keep theirs, and the dxfs that were there stay
+            using (var p = new ExcelPackage(new MemoryStream(first)))
+            {
+                var style = p.Workbook.Styles.TableStyles["Ledger"];
+                style.HeaderRow.Fill.BackgroundColor.Color = System.Drawing.Color.FromArgb(0x37, 0x56, 0x23);
+                style.LastColumn.Font.Bold = true; // a part the style did not have
+                changed = SavedBytes(p);
+            }
+            XmlElement after = PartOf(changed, "xl/styles.xml", out ns);
+            XmlNodeList afterDxfs = after.SelectNodes("d:dxfs/d:dxf", ns);
+            Assert.AreEqual(7, afterDxfs.Count);
+            for (int i = 0; i < 5; i++) Assert.AreEqual(dxfs[i].OuterXml, afterDxfs[i].OuterXml, "dxf " + i);
+            var afterStyle = (XmlElement)after.SelectSingleNode("d:tableStyles/d:tableStyle", ns);
+            Assert.AreEqual("6", afterStyle.GetAttribute("count"));
+            string[] ids = afterStyle.ChildNodes.OfType<XmlElement>().Select(e => e.GetAttribute("type") + "=" + e.GetAttribute("dxfId")).ToArray();
+            string[] before = tableStyle.ChildNodes.OfType<XmlElement>().Select(e => e.GetAttribute("type") + "=" + e.GetAttribute("dxfId")).ToArray();
+            Assert.AreEqual(before[0], ids[0]);          // wholeTable keeps its dxf
+            Assert.AreEqual("headerRow=5", ids[1]);      // the changed part
+            Assert.AreEqual(before[2], ids[2]);
+            Assert.AreEqual("lastColumn=6", ids[5]);     // the new part
+            Assert.AreEqual("ff375623", afterDxfs[5].SelectSingleNode("d:fill/d:patternFill/d:bgColor/@rgb", ns).Value);
+            using (var p = new ExcelPackage(new MemoryStream(changed)))
+            {
+                var style = p.Workbook.Styles.TableStyles["Ledger"];
+                Assert.AreEqual(System.Drawing.Color.FromArgb(0x37, 0x56, 0x23).ToArgb(), style.HeaderRow.Fill.BackgroundColor.Color.Value.ToArgb());
+                Assert.AreEqual(true, style.HeaderRow.Font.Bold); // the rest of the changed part is kept
+                Assert.IsTrue(style.HasElement(OfficeOpenXml.Table.eTableStyleElement.LastColumn));
+
+                // removed
+                Assert.IsTrue(p.Workbook.Styles.TableStyles.Remove("LEDGER"));
+                Assert.IsFalse(p.Workbook.Styles.TableStyles.Remove("Ledger"));
+                Assert.AreEqual(0, p.Workbook.Styles.TableStyles.Count);
+                removed = SavedBytes(p);
+            }
+            XmlElement gone = PartOf(removed, "xl/styles.xml", out ns);
+            Assert.AreEqual("0", ((XmlElement)gone.SelectSingleNode("d:tableStyles", ns)).GetAttribute("count"));
+            Assert.IsNull(gone.SelectSingleNode("d:tableStyles/d:tableStyle", ns));
+        }
+
+        [TestMethod]
+        public void Custom_table_style_names_and_the_workbooks_that_have_none()
+        {
+            XmlNamespaceManager ns;
+            // a workbook that never asks for the table styles has no tableStyles element, as before
+            using (var p = new ExcelPackage())
+            {
+                p.Workbook.Worksheets.Add("S").Cells["A1"].Value = 1;
+                Assert.IsNull(PartOf(SavedBytes(p), "xl/styles.xml", out ns).SelectSingleNode("d:tableStyles", ns));
+            }
+            // one that asks and adds nothing, too
+            using (var p = new ExcelPackage())
+            {
+                p.Workbook.Worksheets.Add("S").Cells["A1"].Value = 1;
+                Assert.AreEqual(0, p.Workbook.Styles.TableStyles.Count);
+                Assert.IsNull(p.Workbook.Styles.TableStyles["x"]);
+                Assert.IsNull(PartOf(SavedBytes(p), "xl/styles.xml", out ns).SelectSingleNode("d:tableStyles", ns));
+            }
+            using (var p = new ExcelPackage())
+            {
+                var all = p.Workbook.Styles.TableStyles;
+                var style = all.Add("Mine");
+                Assert.ThrowsException<ArgumentException>(() => all.Add("mine"));               // the name is there, case does not matter
+                Assert.ThrowsException<ArgumentException>(() => all.Add(""));
+                Assert.ThrowsException<ArgumentException>(() => all.Add("TableStyleMedium2"));  // a name of Excel
+                Assert.ThrowsException<ArgumentException>(() => all.Add("PivotStyleLight16"));
+                Assert.ThrowsException<ArgumentException>(() => style.SetBandSize(OfficeOpenXml.Table.eTableStyleElement.HeaderRow, 2));
+                Assert.ThrowsException<ArgumentOutOfRangeException>(() => style.SetBandSize(OfficeOpenXml.Table.eTableStyleElement.FirstRowStripe, 10));
+                Assert.IsTrue(all.Contains("MINE"));
+                Assert.AreEqual(1, all.Count());
+
+                // a style with no format set is written with no parts; a part that was only looked at is not written
+                p.Workbook.Worksheets.Add("S").Cells["A1"].Value = 1;
+                Assert.IsFalse(style.HasElement(OfficeOpenXml.Table.eTableStyleElement.HeaderRow));
+                var dummy = style.HeaderRow;
+                var saved = (XmlElement)PartOf(SavedBytes(p), "xl/styles.xml", out ns).SelectSingleNode("d:tableStyles/d:tableStyle", ns);
+                Assert.AreEqual("Mine", saved.GetAttribute("name"));
+                Assert.AreEqual("0", saved.GetAttribute("count"));
+                Assert.AreEqual(0, saved.ChildNodes.Count);
+            }
+            // a band with a size and no format of its own is written with its size and no dxf: it still takes its rows
+            using (var p = new ExcelPackage())
+            {
+                p.Workbook.Worksheets.Add("S").Cells["A1"].Value = 1;
+                var style = p.Workbook.Styles.TableStyles.Add("Bands");
+                style.FirstRowStripe.Fill.PatternType = OfficeOpenXml.Style.ExcelFillStyle.Solid;
+                style.FirstRowStripe.Fill.BackgroundColor.Color = System.Drawing.Color.Yellow;
+                style.SetBandSize(OfficeOpenXml.Table.eTableStyleElement.SecondRowStripe, 3);
+                byte[] bytes = SavedBytes(p);
+                var saved = (XmlElement)PartOf(bytes, "xl/styles.xml", out ns).SelectSingleNode("d:tableStyles/d:tableStyle", ns);
+                CollectionAssert.AreEqual(new[] { "firstRowStripe size= dxfId=0", "secondRowStripe size=3 dxfId=" },
+                    saved.ChildNodes.OfType<XmlElement>().Select(e => e.GetAttribute("type") + " size=" + e.GetAttribute("size") + " dxfId=" + e.GetAttribute("dxfId")).ToArray());
+                using (var q = new ExcelPackage(new MemoryStream(bytes)))
+                {
+                    var loaded = q.Workbook.Styles.TableStyles["Bands"];
+                    Assert.AreEqual(3, loaded.GetBandSize(OfficeOpenXml.Table.eTableStyleElement.SecondRowStripe));
+                    Assert.IsFalse(loaded.HasElement(OfficeOpenXml.Table.eTableStyleElement.SecondRowStripe));
+                    loaded.SetBandSize(OfficeOpenXml.Table.eTableStyleElement.SecondRowStripe, 2);
+                    var again = (XmlElement)PartOf(SavedBytes(q), "xl/styles.xml", out ns).SelectSingleNode("d:tableStyles/d:tableStyle", ns);
+                    Assert.AreEqual("2", ((XmlElement)again.SelectSingleNode("d:tableStyleElement[@type='secondRowStripe']", ns)).GetAttribute("size"));
+                    Assert.AreEqual("0", ((XmlElement)again.SelectSingleNode("d:tableStyleElement[@type='firstRowStripe']", ns)).GetAttribute("dxfId")); // kept
+                }
+            }
+            // with a conditional format: its dxf and the dxfs of the style are all there, each with its own number
+            using (var p = LedgerPackage())
+            {
+                var ws = p.Workbook.Worksheets["Styled"];
+                var rule = ws.ConditionalFormatting.AddGreaterThan(ws.Cells["B2:E12"]);
+                rule.Formula = "30";
+                rule.Style.Font.Bold = true;
+                rule.Style.Font.Color.Color = System.Drawing.Color.Red;
+                byte[] bytes = SavedBytes(p);
+                XmlElement styles = PartOf(bytes, "xl/styles.xml", out ns);
+                Assert.AreEqual(6, styles.SelectNodes("d:dxfs/d:dxf", ns).Count);
+                XmlElement sheet = PartOf(bytes, "xl/worksheets/sheet1.xml", out ns);
+                string ruleDxf = sheet.SelectSingleNode("d:conditionalFormatting/d:cfRule/@dxfId", ns).Value;
+                styles = PartOf(bytes, "xl/styles.xml", out ns);
+                var used = styles.SelectNodes("d:tableStyles/d:tableStyle/d:tableStyleElement/@dxfId", ns).OfType<XmlNode>().Select(n => n.Value).ToList();
+                Assert.AreEqual(5, used.Distinct().Count());
+                Assert.IsFalse(used.Contains(ruleDxf), "the conditional format and a part of the style have the same dxf");
+                Assert.AreEqual("ffff0000", styles.SelectNodes("d:dxfs/d:dxf", ns)[int.Parse(ruleDxf)].SelectSingleNode("d:font/d:color/@rgb", ns).Value);
+            }
+        }
+
+        // #38: a table style as Excel writes one is loaded and changed. The dxf of the changed part is a copy of the one in the
+        // file with the changes in it, so what there is no property for (the size of the font, the inner borders) is kept.
+        [TestMethod]
+        public void Custom_table_style_of_a_file_keeps_what_has_no_property()
+        {
+            XmlNamespaceManager ns;
+            byte[] bytes;
+            using (var p = LedgerPackage()) bytes = SavedBytes(p);
+            const string header = "<dxf><font><b/><sz val=\"12\"/><color theme=\"0\"/></font><fill><patternFill patternType=\"solid\"><fgColor theme=\"4\"/><bgColor theme=\"4\"/></patternFill></fill>"
+                + "<border><left style=\"thin\"><color theme=\"4\"/></left><vertical style=\"thin\"><color theme=\"0\"/></vertical></border></dxf>";
+            const string stripe = "<dxf><fill><patternFill><bgColor rgb=\"FFFFE5CC\"/></patternFill></fill><border><horizontal style=\"hair\"/></border></dxf>";
+            const string inner = "<dxf><border><vertical style=\"thin\"/><horizontal style=\"thin\"/></border></dxf>"; // only what has no property
+            bytes = WithPartChanged(bytes, "xl/styles.xml", s => System.Text.RegularExpressions.Regex.Replace(s, "<dxfs.*</tableStyles>",
+                "<dxfs count=\"3\">" + header + stripe + inner + "</dxfs><tableStyles count=\"1\" defaultTableStyle=\"TableStyleMedium2\" defaultPivotStyle=\"PivotStyleLight16\">"
+                + "<tableStyle name=\"Ledger\" pivot=\"0\" count=\"4\"><tableStyleElement type=\"headerRow\" dxfId=\"0\"/><tableStyleElement type=\"firstRowStripe\" size=\"3\" dxfId=\"1\"/>"
+                + "<tableStyleElement type=\"secondRowStripe\" size=\"2\"/><tableStyleElement type=\"wholeTable\" dxfId=\"2\"/></tableStyle></tableStyles>"));
+            byte[] changed;
+            using (var p = new ExcelPackage(new MemoryStream(bytes)))
+            {
+                var style = p.Workbook.Styles.TableStyles["Ledger"];
+                Assert.IsTrue(style.HasElement(OfficeOpenXml.Table.eTableStyleElement.WholeTable), "a part of the file whose format has no property here");
+                Assert.IsFalse(style.HasElement(OfficeOpenXml.Table.eTableStyleElement.SecondRowStripe), "a band with a size and no format");
+                Assert.IsFalse(style.HasElement(OfficeOpenXml.Table.eTableStyleElement.TotalRow));
+                Assert.AreEqual(true, style.HeaderRow.Font.Bold);
+                Assert.AreEqual(0, style.HeaderRow.Font.Color.Theme);
+                Assert.AreEqual(OfficeOpenXml.Style.ExcelFillStyle.Solid, style.HeaderRow.Fill.PatternType);
+                Assert.IsNull(style.FirstRowStripe.Fill.PatternType);
+                Assert.AreEqual(3, style.GetBandSize(OfficeOpenXml.Table.eTableStyleElement.FirstRowStripe));
+                Assert.AreEqual(2, style.GetBandSize(OfficeOpenXml.Table.eTableStyleElement.SecondRowStripe));
+
+                style.HeaderRow.Font.Color.Color = System.Drawing.Color.Yellow;   // a theme colour of the file becomes an rgb colour
+                style.HeaderRow.Font.Bold = null;                                 // taken away
+                style.HeaderRow.Font.Italic = true;
+                style.HeaderRow.Border.Top.Style = OfficeOpenXml.Style.ExcelBorderStyle.Medium;
+                style.FirstRowStripe.Fill.BackgroundColor.Color = System.Drawing.Color.FromArgb(0xE2, 0xEF, 0xDA);
+                changed = SavedBytes(p);
+            }
+            XmlElement styles = PartOf(changed, "xl/styles.xml", out ns);
+            XmlNodeList dxfs = styles.SelectNodes("d:dxfs/d:dxf", ns);
+            Assert.AreEqual(5, dxfs.Count);
+            var was = new XmlDocument();
+            was.LoadXml("<dxfs xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">" + header + stripe + inner + "</dxfs>");
+            for (int i = 0; i < 3; i++) Assert.AreEqual(was.DocumentElement.ChildNodes[i].OuterXml, dxfs[i].OuterXml, "the dxf of the file is not touched: " + i);
+            // the part that was not changed keeps its dxf
+            CollectionAssert.AreEqual(new[] { "headerRow size= dxfId=3", "firstRowStripe size=3 dxfId=4", "secondRowStripe size=2 dxfId=", "wholeTable size= dxfId=2" },
+                styles.SelectNodes("d:tableStyles/d:tableStyle/d:tableStyleElement", ns).OfType<XmlElement>().Select(e => e.GetAttribute("type") + " size=" + e.GetAttribute("size") + " dxfId=" + e.GetAttribute("dxfId")).ToArray());
+
+            XmlNode h = dxfs[3];
+            Assert.AreEqual("font,fill,border", string.Join(",", h.ChildNodes.OfType<XmlElement>().Select(e => e.LocalName)));
+            Assert.AreEqual("12", h.SelectSingleNode("d:font/d:sz/@val", ns).Value, "the size of the font, which has no property");
+            Assert.IsNull(h.SelectSingleNode("d:font/d:b", ns), "bold was taken away");
+            Assert.AreEqual("1", h.SelectSingleNode("d:font/d:i/@val", ns).Value);
+            var colour = (XmlElement)h.SelectSingleNode("d:font/d:color", ns);
+            Assert.AreEqual("ffffff00", colour.GetAttribute("rgb"));
+            Assert.IsFalse(colour.HasAttribute("theme"), "the theme colour of the file is left beside the rgb colour");
+            Assert.AreEqual("solid", h.SelectSingleNode("d:fill/d:patternFill/@patternType", ns).Value);
+            Assert.AreEqual("4", h.SelectSingleNode("d:fill/d:patternFill/d:bgColor/@theme", ns).Value);
+            Assert.AreEqual("left,top,vertical", string.Join(",", h.SelectSingleNode("d:border", ns).ChildNodes.OfType<XmlElement>().Select(e => e.LocalName)), "the order of the schema, and the inner border is kept");
+            Assert.AreEqual("thin", h.SelectSingleNode("d:border/d:left/@style", ns).Value);
+            Assert.AreEqual("4", h.SelectSingleNode("d:border/d:left/d:color/@theme", ns).Value);
+            Assert.AreEqual("medium", h.SelectSingleNode("d:border/d:top/@style", ns).Value);
+            Assert.AreEqual("0", h.SelectSingleNode("d:border/d:vertical/d:color/@theme", ns).Value);
+
+            XmlNode s1 = dxfs[4];
+            Assert.IsNull(s1.SelectSingleNode("d:fill/d:patternFill/@patternType", ns));
+            Assert.AreEqual("ffe2efda", s1.SelectSingleNode("d:fill/d:patternFill/d:bgColor/@rgb", ns).Value);
+            Assert.AreEqual("hair", s1.SelectSingleNode("d:border/d:horizontal/@style", ns).Value);
+            Assert.IsNull(s1.SelectSingleNode("d:font", ns));
+            Assert.IsNull(s1.SelectSingleNode("d:numFmt", ns));
+        }
+
         // #34 (B5 of #8): saving and loading with asynchronous input and output.
         // A stream like the response of a web server that does not allow synchronous input and output: every synchronous read,
         // write and flush throws.
