@@ -128,8 +128,16 @@ namespace OfficeOpenXml.ConditionalFormatting
       {
           worksheet.Workbook.Styles.Dxfs[DxfId].AllowChange = true;  //This Id is referenced by CF, so we can use it when we save.
           _style = worksheet.Workbook.Styles.Dxfs[DxfId].Clone();    //Clone, so it can be altered without effecting other dxf styles
+          // orabooster-epplus (issue #44): the dxf of the file and the Id of the style as loaded. On save a rule whose style
+          // still has this Id keeps this dxf.
+          SavedDxfId = DxfId;
+          SavedStyleId = _style.Id;
       }
     }
+
+    // orabooster-epplus (issue #44): the dxf this rule points to in the file (as loaded or as last saved), and the Id of its style then
+    internal int SavedDxfId = int.MinValue;
+    internal string SavedStyleId;
 
     /// <summary>
     /// Initialize the <see cref="ExcelConditionalFormattingRule"/>

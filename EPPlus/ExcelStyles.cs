@@ -158,7 +158,10 @@ namespace OfficeOpenXml
                 foreach (XmlNode x in dxfsNode)
                 {
                     ExcelDxfStyleConditionalFormatting item = new ExcelDxfStyleConditionalFormatting(_nameSpaceManager, x, this);
-                    Dxfs.Add(item.Id, item);
+                    // orabooster-epplus (issue #44): under a key of its own. The Id says only what the properties say, so two dxfs
+                    // of the file that differ in what has no property (a gradient fill, the size of a font) had the same key, and
+                    // on save a conditional format that looks its dxf up by the Id of its style got the first of them.
+                    Dxfs.Add("file|" + Dxfs.Count.ToString(System.Globalization.CultureInfo.InvariantCulture), item);
                 }
             }
         }
@@ -609,9 +612,10 @@ namespace OfficeOpenXml
         internal int AppendDxf(XmlElement dxfsNode, ExcelDxfStyleConditionalFormatting dxf, XmlNode basedOn)
         {
             int id = Dxfs.Count;
-            // In the list under a key of its own: a conditional format finds its dxf by the Id of its style, and must not find a
-            // dxf of a table style, which can have more in its XML than the Id says (what was copied from the file).
-            Dxfs.Add("tableStyle|" + id.ToString(System.Globalization.CultureInfo.InvariantCulture) + "|" + dxf.Id, dxf);
+            // In the list under a key of its own: a new conditional format finds a dxf it can share by the Id of its style, and
+            // must not find this one, which can have more in its XML than the Id says (what was copied from the file), or
+            // belongs to a table style.
+            Dxfs.Add("own|" + id.ToString(System.Globalization.CultureInfo.InvariantCulture) + "|" + dxf.Id, dxf);
             XmlElement elem;
             if (basedOn == null)
             {
@@ -878,8 +882,42 @@ namespace OfficeOpenXml
                 if (ws is ExcelChartsheet) continue;
                 foreach (var cf in ws.ConditionalFormatting)
                 {
+                    // orabooster-epplus (issue #44): a rule whose style was not changed since it was loaded or saved keeps its dxf.
+                    // A rule of the file that was changed gets a new dxf, a copy of its old one with the changes in it, so what has
+                    // no property (a gradient fill, the size of a font) is kept. Only a new rule shares a dxf with a rule that has
+                    // the same style, as before.
+                    var rule = (ExcelConditionalFormattingRule)cf;
+                    if (rule.SavedDxfId >= 0 && rule.SavedDxfId < Dxfs.Count && rule.SavedStyleId == cf.Style.Id)
+                    {
+                        rule.DxfId = rule.SavedDxfId;
+                        continue;
+                    }
+                    if (!cf.Style.HasValue && rule.SavedDxfId >= 0)
+                    {
+                        // every format of the rule was taken away: it has no dxf now (dxfId is optional), so Excel shows none
+                        rule.DxfId = int.MinValue;
+                        rule.SavedDxfId = int.MinValue;
+                        rule.SavedStyleId = null;
+                        continue;
+                    }
+                    if (cf.Style.HasValue && rule.SavedDxfId >= 0 && rule.SavedDxfId < Dxfs.Count)
+                    {
+                        if (dxfsNode == null) dxfsNode = CreateNode(dxfsPath);
+                        XmlNode basedOn = null;
+                        int n = 0;
+                        foreach (XmlNode child in dxfsNode.ChildNodes)
+                        {
+                            if (!(child is XmlElement)) continue;
+                            if (n++ == rule.SavedDxfId) { basedOn = child; break; }
+                        }
+                        rule.DxfId = AppendDxf((XmlElement)dxfsNode, cf.Style.Clone(), basedOn);
+                        rule.SavedDxfId = rule.DxfId;
+                        rule.SavedStyleId = cf.Style.Id;
+                        continue;
+                    }
                     if (cf.Style.HasValue)
                     {
+                        if (dxfsNode == null) dxfsNode = CreateNode(dxfsPath);
                         int ix = Dxfs.FindIndexByID(cf.Style.Id);
                         if (ix < 0)
                         {
@@ -893,6 +931,8 @@ namespace OfficeOpenXml
                         {
                             ((ExcelConditionalFormattingRule)cf).DxfId = ix;
                         }
+                        rule.SavedDxfId = rule.DxfId; // orabooster-epplus (issue #44): a second save keeps it, unless the style is changed
+                        rule.SavedStyleId = cf.Style.Id;
                     }
                 }
             }
