@@ -97,7 +97,7 @@ Tests (EPPlusTest, MSTest, `net10.0-windows`):
 dotnet test EPPlusTest/EPPlusTest.Core.csproj -c Release
 ```
 
-1,225 passed, 0 failed, 214 skipped (the skipped ones are marked `[Ignore]` in EPPlus 4.5; most need files that are not in the repository). `OraBoosterIssuesTests` covers the fixes and the new features in this fork. Some old tests still write files to `C:\temp`.
+1,226 passed, 0 failed, 214 skipped (the skipped ones are marked `[Ignore]` in EPPlus 4.5; most need files that are not in the repository). `OraBoosterIssuesTests` covers the fixes and the new features in this fork. Some old tests still write files to `C:\temp`.
 Until ora.2 ten tests failed and one stopped the test host and was left out of the run; see #23 in [CHANGES.md](CHANGES.md).
 
 Tools:

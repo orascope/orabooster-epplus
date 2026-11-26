@@ -151,6 +151,9 @@ namespace OfficeOpenXml.Table
             }
             lock (this)
             {
+                // orabooster-epplus (issue #48): the slicers of the table go with it, and the slicer caches of the tables after it
+                // follow the new ids given below
+                OfficeOpenXml.Drawing.ExcelTableSlicer.TableDeleted(Table.WorkSheet.Workbook, Table.Id);
                 var range = _ws.Cells[Table.Address.Address];
                 _tableNames.Remove(Table.Name);
                 _tables.Remove(Table);

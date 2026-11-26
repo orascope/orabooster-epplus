@@ -1750,6 +1750,40 @@ namespace EPPlusTest
             Assert.IsNull(Part(bytes, "xl/_rels/workbook.xml.rels", out ns).SelectSingleNode("rel:Relationship[@Type='http://schemas.microsoft.com/office/2007/relationships/slicerCache']", ns));
         }
 
+        [TestMethod]
+        public void Table_slicers_follow_a_deleted_table()
+        {
+            XmlNamespaceManager ns;
+            byte[] bytes;
+            using (var p = SalesPackage())
+            {
+                var ws = p.Workbook.Worksheets["Data"];
+                var second = p.Workbook.Worksheets.Add("Second");
+                second.Cells["A1"].Value = "Kind";
+                for (int r = 2; r <= 4; r++) second.Cells[r, 1].Value = "K" + r;
+                var kinds = second.Tables.Add(second.Cells["A1:A4"], "Kinds");   // table id 2
+                ws.Drawings.AddTableSlicer(ws.Tables[0].Columns["Region"]);
+                var kindSlicer = ws.Drawings.AddTableSlicer(kinds.Columns["Kind"]);
+                Assert.AreEqual(2, ws.Drawings.Count);
+                ws.Tables.Delete(ws.Tables[0]);                                  // table 1 goes, Kinds becomes 1
+                Assert.AreEqual(1, kinds.Id);
+                Assert.AreEqual(1, ws.Drawings.Count, "the slicer of the deleted table went with it");
+                Assert.AreSame(kindSlicer, ws.Drawings[0]);
+                Assert.AreSame(kinds, kindSlicer.Table, "the slicer of the other table follows its new id");
+                Assert.IsFalse(p.Workbook.Names.ContainsKey("Slicer_Region"));
+                bytes = SavedBytes(p);
+            }
+            Assert.AreEqual(1, Entries(bytes).Count(e => e.StartsWith("xl/slicerCaches/", StringComparison.Ordinal)));
+            using (var p = new ExcelPackage(new MemoryStream(bytes)))
+            {
+                var slicer = p.Workbook.Worksheets["Data"].Drawings.OfType<OfficeOpenXml.Drawing.ExcelTableSlicer>().Single();
+                Assert.AreEqual("Kinds", slicer.Table.Name);
+                Assert.AreEqual("Kind", slicer.TableColumn.Name);
+            }
+            XmlElement slicers = Part(bytes, "xl/slicers/slicer1.xml", out ns);
+            Assert.AreEqual(1, slicers.SelectNodes("x14:slicer", ns).Count);
+        }
+
         // #34 (B5 of #8): saving and loading with asynchronous input and output.
         // A stream like the response of a web server that does not allow synchronous input and output: every synchronous read,
         // write and flush throws.

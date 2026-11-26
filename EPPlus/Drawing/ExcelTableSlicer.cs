@@ -315,6 +315,41 @@ namespace OfficeOpenXml.Drawing
             base.DeleteMe();
         }
 
+        /// <summary>
+        /// A table is deleted (ExcelTableCollection.Delete, before the tables after it are numbered again): its slicers are
+        /// removed, as with Drawings.Remove, and the slicer caches of the tables after it follow their new ids.
+        /// </summary>
+        internal static void TableDeleted(ExcelWorkbook wb, int tableId)
+        {
+            // the caches as the slicers of the workbook hold them, so that a slicer object sees the new id
+            var held = new Dictionary<string, SlicerCache>(StringComparer.OrdinalIgnoreCase);
+            foreach (ExcelWorksheet ws in wb.Worksheets)
+            {
+                if (ws is ExcelChartsheet) continue;
+                if (ws._slicerParts == null && ws.Part.GetRelationshipsByType(RelSlicer).Count == 0) continue; // no slicer: nothing to read
+                var remove = new List<ExcelTableSlicer>();
+                foreach (ExcelDrawing d in ws.Drawings)
+                {
+                    var slicer = d as ExcelTableSlicer;
+                    if (slicer == null) continue;
+                    if (slicer._cache.TableId == tableId) remove.Add(slicer);
+                    else held[slicer._cache.Uri.OriginalString] = slicer._cache;
+                }
+                foreach (ExcelTableSlicer slicer in remove) ws.Drawings.Remove(slicer);
+            }
+            foreach (SlicerCache read in SlicerCache.All(wb))
+            {
+                SlicerCache cache;
+                if (!held.TryGetValue(read.Uri.OriginalString, out cache)) cache = read;
+                int id = cache.TableId;
+                if (id > tableId)
+                {
+                    cache.TableCacheElement.SetAttribute("tableId", (id - 1).ToString(CultureInfo.InvariantCulture));
+                    WriteXml(cache.Part, cache.Xml);
+                }
+            }
+        }
+
         /// <summary>A slicer name that no slicer of the workbook has: the column name, then "name 1", "name 2" and so on.</summary>
         static string UniqueSlicerName(ExcelWorkbook wb, string name)
         {
@@ -519,6 +554,18 @@ namespace OfficeOpenXml.Drawing
 
             internal bool IsTableCache { get { return TableCache != null; } }
 
+            internal XmlElement TableCacheElement { get { return TableCache; } }
+
+            /// <summary>The id of the table of a table slicer cache, or -1.</summary>
+            internal int TableId
+            {
+                get
+                {
+                    int id;
+                    return TableCache != null && int.TryParse(TableCache.GetAttribute("tableId"), NumberStyles.Integer, CultureInfo.InvariantCulture, out id) ? id : -1;
+                }
+            }
+
             internal int ColumnId
             {
                 get
@@ -544,7 +591,7 @@ namespace OfficeOpenXml.Drawing
             }
 
             /// <summary>Every slicer cache of the workbook (of tables and of pivot tables), read from the package.</summary>
-            static IEnumerable<SlicerCache> All(ExcelWorkbook wb)
+            internal static IEnumerable<SlicerCache> All(ExcelWorkbook wb)
             {
                 var package = wb._package.Package;
                 foreach (var rel in wb.Part.GetRelationshipsByType(RelSlicerCache))
