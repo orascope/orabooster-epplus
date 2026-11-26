@@ -2356,6 +2356,24 @@ namespace EPPlusTest
                 var calc = pivot.Fields.AddCalculatedField("Double", "Sales*2");
                 Assert.ThrowsException<InvalidOperationException>(() => calc.HideItems(1));
             }
+            // an error of the source is an item of its own; it is hidden by its text, which is what ItemValues gives for it
+            using (var p = PivotSourcePackage())
+            {
+                var data = p.Workbook.Worksheets["Data"];
+                data.Cells["B3"].Formula = "1/0";
+                data.Calculate();
+                var ws = p.Workbook.Worksheets["Pivot"];
+                var pivot = ws.PivotTables.Add(ws.Cells["A3"], data.Cells["A1:D9"], "PT1");
+                var product = pivot.Fields["Product"];
+                pivot.RowFields.Add(product);
+                pivot.DataFields.Add(pivot.Fields["Sales"]);
+                CollectionAssert.AreEqual(new object[] { "P2", "#DIV/0!", "P1", "P0" }, product.ItemValues);
+                product.HideItems("#DIV/0!");
+                CollectionAssert.AreEqual(new object[] { "#DIV/0!" }, product.HiddenItems);
+                bytes = SavedBytes(p);
+            }
+            Assert.AreEqual("count=4 : s=P2,e=#DIV/0!,s=P1,s=P0", SharedItemsOf(bytes, "Product"));
+            Assert.AreEqual("5:0,h1,2,3,default", ItemsOf(bytes, 1));
         }
 
         // #34 (B5 of #8): saving and loading with asynchronous input and output.

@@ -353,6 +353,8 @@ namespace OfficeOpenXml.Table.PivotTable
             for (int i = 0; i < values.Length; i++)
             {
                 keys[i] = KeyOf(values[i]);
+                // the text of an error item (#DIV/0!), which is what ItemValues gives for it
+                if (!known.Contains(keys[i]) && values[i] is string && known.Contains("e|" + (string)values[i])) keys[i] = "e|" + (string)values[i];
                 if (!known.Contains(keys[i])) throw new ArgumentException("The field " + Name + " has no item " + (values[i] == null ? "(blank)" : Convert.ToString(values[i], CultureInfo.InvariantCulture)), argument);
             }
             return keys;
