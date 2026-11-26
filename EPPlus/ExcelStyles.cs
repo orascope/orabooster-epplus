@@ -892,6 +892,14 @@ namespace OfficeOpenXml
                         rule.DxfId = rule.SavedDxfId;
                         continue;
                     }
+                    if (!cf.Style.HasValue && rule.SavedDxfId >= 0)
+                    {
+                        // every format of the rule was taken away: it has no dxf now (dxfId is optional), so Excel shows none
+                        rule.DxfId = int.MinValue;
+                        rule.SavedDxfId = int.MinValue;
+                        rule.SavedStyleId = null;
+                        continue;
+                    }
                     if (cf.Style.HasValue && rule.SavedDxfId >= 0 && rule.SavedDxfId < Dxfs.Count)
                     {
                         if (dxfsNode == null) dxfsNode = CreateNode(dxfsPath);

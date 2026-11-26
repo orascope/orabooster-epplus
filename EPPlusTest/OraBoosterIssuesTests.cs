@@ -1173,6 +1173,24 @@ namespace EPPlusTest
             Assert.AreEqual("1", dxfs[2].SelectSingleNode("d:font/d:b/@val", ns).Value);
             Assert.AreEqual("FFFF0000", dxfs[2].SelectSingleNode("d:fill/d:gradientFill/d:stop[@position='0']/d:color/@rgb", ns).Value, "the gradient of the rule");
             Assert.IsNull(dxfs[3].SelectSingleNode("d:fill", ns), "the new rule has only its font");
+
+            // every format of a rule of the file taken away: the rule has no dxf, and the dxf of the file stays for the other rule
+            byte[] cleared;
+            using (var p = new ExcelPackage(new MemoryStream(bytes)))
+            {
+                var under = p.Workbook.Worksheets["S"].ConditionalFormatting.First(r => r.Type == OfficeOpenXml.ConditionalFormatting.eExcelConditionalFormattingRuleType.LessThan);
+                under.Style.Font.Bold = null;
+                under.Style.Font.Italic = null;
+                Assert.IsFalse(under.Style.HasValue);
+                cleared = SavedBytes(p);
+            }
+            Assert.AreEqual("greaterThan=1,lessThan=", CfDxfIds(cleared));
+            Assert.AreEqual(2, PartOf(cleared, "xl/styles.xml", out ns).SelectNodes("d:dxfs/d:dxf", ns).Count);
+            using (var p = new ExcelPackage(new MemoryStream(cleared)))
+            {
+                Assert.IsFalse(p.Workbook.Worksheets["S"].ConditionalFormatting.First(r => r.Type == OfficeOpenXml.ConditionalFormatting.eExcelConditionalFormattingRuleType.LessThan).Style.HasValue);
+                Assert.AreEqual("greaterThan=1,lessThan=", CfDxfIds(SavedBytes(p)));
+            }
         }
 
         [TestMethod]
