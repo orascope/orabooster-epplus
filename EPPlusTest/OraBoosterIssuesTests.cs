@@ -1825,6 +1825,19 @@ namespace EPPlusTest
                 Assert.ThrowsException<ArgumentException>(() => pivot.Fields.AddCalculatedField("Sales", "Qty*3"));      // a field of the source
                 Assert.ThrowsException<ArgumentException>(() => pivot.Fields.AddCalculatedField("", "Qty*3"));
                 Assert.ThrowsException<ArgumentException>(() => pivot.Fields.AddCalculatedField("X", "="));
+                // a formula that names no field of the pivot table: Excel does not open such a workbook
+                Assert.ThrowsException<ArgumentException>(() => pivot.Fields.AddCalculatedField("X", "Nope*2"));
+                Assert.ThrowsException<ArgumentException>(() => pivot.Fields.AddCalculatedField("X", "'Unit price'*Qty"));
+                Assert.ThrowsException<ArgumentException>(() => pivot.Fields.AddCalculatedField("X", "X+Sales"), "the field itself");
+                Assert.ThrowsException<ArgumentException>(() => pivot.Fields.AddCalculatedField("X", "'Sales*2"), "a quote that is not closed");
+                Assert.ThrowsException<ArgumentException>(() => dbl.Formula = "Double+1");
+                Assert.AreEqual(6, pivot.Fields.Count, "nothing was added by the calls that threw");
+                // names in quotes, another calculated field, a function, numbers, a text and TRUE are all taken
+                dbl.Formula = "IF('Sales'>1.5E2, ROUND(sales*2, 0), qty*2) + IF(TRUE, 0, 1) + LEN(\"Nope\")*0";
+                dbl.Formula = "Sales*2";
+                perUnit.Formula = "Double/Qty/2";
+                perUnit.Formula = "Sales / Qty";
+                Assert.ThrowsException<InvalidOperationException>(() => pivot.ColumnFields.Add(perUnit));
                 Assert.ThrowsException<InvalidOperationException>(() => pivot.RowFields.Add(dbl));                       // only a data field
                 Assert.ThrowsException<InvalidOperationException>(() => pivot.Fields["Sales"].Formula = "Qty");
                 bytes = SavedBytes(p);
