@@ -3457,6 +3457,8 @@ namespace OfficeOpenXml
                 foreach (var field in pt.Fields) field.WriteAutoSort();
                 // orabooster-epplus (issue #60): and of the data field of a value filter
                 foreach (var field in pt.Fields) field.WriteValueFilter();
+                // orabooster-epplus (issue #62): the items of the fields that were filtered by items here, from the source as it is now
+                foreach (var field in pt.Fields) field.WriteItemsOnSave();
                 pt.PivotTableXml.Save(pt.Part.GetStream(FileMode.Create));
                 pt.CacheDefinition.CacheDefinitionXml.Save(pt.CacheDefinition.Part.GetStream(FileMode.Create));
             }

@@ -2174,6 +2174,190 @@ namespace EPPlusTest
             }
         }
 
+        // #62 (B2 of #8, part 4): a pivot field filtered by its items.
+        static string SharedItemsOf(byte[] a_package, string a_field)
+        {
+            XmlNamespaceManager ns;
+            var shared = (XmlElement)PartOf(a_package, "xl/pivotCache/pivotCacheDefinition1.xml", out ns).SelectSingleNode("d:cacheFields/d:cacheField[@name='" + a_field + "']/d:sharedItems", ns);
+            string attributes = string.Join(" ", shared.Attributes.Cast<XmlAttribute>().OrderBy(a => a.Name, StringComparer.Ordinal).Select(a => a.Name + "=" + a.Value));
+            return attributes + " : " + string.Join(",", shared.ChildNodes.OfType<XmlElement>().Select(e => e.LocalName + (e.HasAttribute("v") ? "=" + e.GetAttribute("v") : "")));
+        }
+
+        static string ItemsOf(byte[] a_package, int a_field, string a_part = "xl/pivotTables/pivotTable1.xml")
+        {
+            XmlNamespaceManager ns;
+            var items = (XmlElement)PartOf(a_package, a_part, out ns).SelectSingleNode("d:pivotFields/d:pivotField[" + (a_field + 1) + "]/d:items", ns);
+            if (items == null) return null;
+            return items.GetAttribute("count") + ":" + string.Join(",", items.ChildNodes.OfType<XmlElement>().Select(e => (e.GetAttribute("h") == "1" ? "h" : "") + (e.HasAttribute("t") ? e.GetAttribute("t") : e.GetAttribute("x"))));
+        }
+
+        [TestMethod]
+        public void Pivot_field_items_are_hidden_and_shown()
+        {
+            XmlNamespaceManager ns;
+            byte[] bytes;
+            using (var p = PivotSourcePackage())
+            {
+                var data = p.Workbook.Worksheets["Data"];
+                var ws = p.Workbook.Worksheets["Pivot"];
+                var pivot = ws.PivotTables.Add(ws.Cells["A3"], data.Cells["A1:D9"], "PT1");
+                var region = pivot.Fields["Region"];
+                var product = pivot.Fields["Product"];
+                pivot.RowFields.Add(region);
+                pivot.PageFields.Add(product);
+                pivot.DataFields.Add(pivot.Fields["Sales"]);
+                CollectionAssert.AreEqual(new object[] { "North", "South", "East", "West" }, region.ItemValues);
+                Assert.AreEqual(0, region.HiddenItems.Length);
+                // a row field of a new pivot table has only the subtotal item; Excel makes the others on the refresh
+                Assert.AreEqual(0, region.TopNode.SelectNodes("d:items/d:item[@x]", region.NameSpaceManager).Count, "reading the items writes nothing");
+                region.ShowAllItems();
+                Assert.AreEqual(0, region.TopNode.SelectNodes("d:items/d:item[@x]", region.NameSpaceManager).Count, "nor showing all when nothing is hidden");
+
+                region.HideItems("north");                               // a text is matched without case
+                CollectionAssert.AreEqual(new object[] { "North" }, region.HiddenItems);
+                region.HideItems("West");
+                CollectionAssert.AreEqual(new object[] { "North", "West" }, region.HiddenItems);
+                Assert.ThrowsException<ArgumentException>(() => region.HideItems("Nowhere"));
+                Assert.ThrowsException<InvalidOperationException>(() => region.HideItems("South", "East"), "one item must stay");
+                region.ShowItems("South", "West");
+                CollectionAssert.AreEqual(new object[] { "North", "East" }, region.HiddenItems);
+
+                // a page field: one item, then several
+                Assert.IsNull(product.PageItem);
+                product.SetPageItem("P1");
+                Assert.AreEqual("P1", product.PageItem);
+                Assert.IsFalse(product.MultipleItemSelectionAllowed);
+                Assert.ThrowsException<InvalidOperationException>(() => region.SetPageItem("South"), "not a page field");
+                bytes = SavedBytes(p);
+            }
+            Assert.AreEqual("count=4 : s=North,s=South,s=East,s=West", SharedItemsOf(bytes, "Region"));
+            Assert.AreEqual("count=3 : s=P2,s=P0,s=P1", SharedItemsOf(bytes, "Product"));
+            Assert.AreEqual("containsBlank=1 : ", SharedItemsOf(bytes, "Sales"), "a field that is not filtered is as before");
+            Assert.AreEqual("5:h0,1,h2,3,default", ItemsOf(bytes, 0));
+            Assert.AreEqual("4:0,1,2,default", ItemsOf(bytes, 1));
+            XmlElement table = PartOf(bytes, "xl/pivotTables/pivotTable1.xml", out ns);
+            Assert.AreEqual("2", table.SelectSingleNode("d:pageFields/d:pageField/@item", ns).Value, "P1 is the third item");
+            Assert.AreEqual("items", table.SelectSingleNode("d:pivotFields/d:pivotField[1]", ns).FirstChild.LocalName);
+
+            using (var p = new ExcelPackage(new MemoryStream(bytes)))
+            {
+                var pivot = p.Workbook.Worksheets["Pivot"].PivotTables["PT1"];
+                var region = pivot.Fields["Region"];
+                var product = pivot.Fields["Product"];
+                CollectionAssert.AreEqual(new object[] { "North", "East" }, region.HiddenItems);
+                CollectionAssert.AreEqual(new object[] { "North", "South", "East", "West" }, region.ItemValues);
+                Assert.AreEqual("P1", product.PageItem);
+                // read and saved: as it was
+                byte[] same = SavedBytes(p);
+                Assert.AreEqual(ItemsOf(bytes, 0), ItemsOf(same, 0));
+                Assert.AreEqual(SharedItemsOf(bytes, "Region"), SharedItemsOf(same, "Region"));
+                // the page field shows two items: several items are allowed and no single item is named
+                product.ShowItems("P0", "P2");
+                Assert.IsTrue(product.MultipleItemSelectionAllowed);
+                Assert.IsNull(product.PageItem);
+                region.ShowAllItems();
+                Assert.AreEqual(0, region.HiddenItems.Length);
+                bytes = SavedBytes(p);
+            }
+            Assert.AreEqual("5:0,1,2,3,default", ItemsOf(bytes, 0));
+            Assert.AreEqual("4:0,1,h2,default", ItemsOf(bytes, 1));
+            Assert.IsNull(PartOf(bytes, "xl/pivotTables/pivotTable1.xml", out ns).SelectSingleNode("d:pageFields/d:pageField/@item", ns));
+        }
+
+        [TestMethod]
+        public void Pivot_shared_items_are_written_as_Excel_writes_them()
+        {
+            // a column of each mix of values; the attributes are those Excel 16 wrote for the same columns
+            byte[] bytes;
+            using (var p = new ExcelPackage())
+            {
+                var ws = p.Workbook.Worksheets.Add("Data");
+                string[] heads = { "Text", "Whole", "Decimal", "Date", "Flag", "Mixed", "Blank", "NumBlank", "DateBlank", "TextDate", "FlagNum", "TextFlag", "Amount" };
+                for (int c = 0; c < heads.Length; c++) ws.Cells[1, c + 1].Value = heads[c];
+                string[] texts = { "b", "a", "c", "A", "b", "d" };
+                for (int r = 2; r <= 7; r++)
+                {
+                    int i = r - 2;
+                    ws.Cells[r, 1].Value = texts[i];
+                    ws.Cells[r, 2].Value = 10 * (i % 3);
+                    ws.Cells[r, 3].Value = 1.5 * (i % 3);
+                    ws.Cells[r, 4].Value = new DateTime(2026, 1, 1).AddDays(i % 3);
+                    ws.Cells[r, 5].Value = i % 2 == 0;
+                    if (i == 0) ws.Cells[r, 6].Value = "x"; else if (i == 1) ws.Cells[r, 6].Value = 5; else if (i == 3) ws.Cells[r, 6].Value = "y"; else if (i == 4) ws.Cells[r, 6].Value = 2.5;
+                    if (i != 2) ws.Cells[r, 7].Value = "t" + (i % 2);
+                    if (i != 1) ws.Cells[r, 8].Value = 1.5 * i;
+                    if (i != 1) { ws.Cells[r, 9].Value = new DateTime(2026, 3, 1).AddDays(i).ToOADate(); ws.Cells[r, 9].Style.Numberformat.Format = "yyyy-mm-dd"; } // a date as a number with a date format
+                    if (i % 2 == 0) ws.Cells[r, 10].Value = "t" + i; else ws.Cells[r, 10].Value = new DateTime(2026, 3, 1).AddDays(i);
+                    if (i % 2 == 0) ws.Cells[r, 11].Value = i == 0; else ws.Cells[r, 11].Value = i;
+                    if (i % 2 == 0) ws.Cells[r, 12].Value = i == 0; else ws.Cells[r, 12].Value = "s" + i;
+                    ws.Cells[r, 13].Value = r * 10;
+                }
+                var pv = p.Workbook.Worksheets.Add("Pivot");
+                var pivot = pv.PivotTables.Add(pv.Cells["A3"], ws.Cells[1, 1, 7, heads.Length], "PT");
+                pivot.DataFields.Add(pivot.Fields["Amount"]);
+                for (int c = 0; c < heads.Length - 1; c++)
+                {
+                    pivot.RowFields.Add(pivot.Fields[c]);
+                    pivot.Fields[c].HideItems(pivot.Fields[c].ItemValues[0]);
+                }
+                CollectionAssert.AreEqual(new object[] { "b", "a", "c", "d" }, pivot.Fields["Text"].ItemValues, "A and a are one item");
+                CollectionAssert.AreEqual(new object[] { "x", 5d, null, "y", 2.5 }, pivot.Fields["Mixed"].ItemValues);
+                CollectionAssert.AreEqual(new object[] { null }, new[] { pivot.Fields["Blank"].ItemValues[2] });
+                pivot.Fields["Blank"].HideItems((object)null);   // the empty cells
+                Assert.AreEqual(2, pivot.Fields["Blank"].HiddenItems.Length);
+                bytes = SavedBytes(p);
+            }
+            Assert.AreEqual("count=4 : s=b,s=a,s=c,s=d", SharedItemsOf(bytes, "Text"));
+            Assert.AreEqual("containsInteger=1 containsNumber=1 containsSemiMixedTypes=0 containsString=0 count=3 maxValue=20 minValue=0 : n=0,n=10,n=20", SharedItemsOf(bytes, "Whole"));
+            Assert.AreEqual("containsNumber=1 containsSemiMixedTypes=0 containsString=0 count=3 maxValue=3 minValue=0 : n=0,n=1.5,n=3", SharedItemsOf(bytes, "Decimal"));
+            Assert.AreEqual("containsDate=1 containsNonDate=0 containsSemiMixedTypes=0 containsString=0 count=3 maxDate=2026-01-04T00:00:00 minDate=2026-01-01T00:00:00 : d=2026-01-01T00:00:00,d=2026-01-02T00:00:00,d=2026-01-03T00:00:00", SharedItemsOf(bytes, "Date"));
+            Assert.AreEqual("count=2 : b=1,b=0", SharedItemsOf(bytes, "Flag"));
+            Assert.AreEqual("containsBlank=1 containsMixedTypes=1 containsNumber=1 count=5 maxValue=5 minValue=2.5 : s=x,n=5,m,s=y,n=2.5", SharedItemsOf(bytes, "Mixed"));
+            Assert.AreEqual("containsBlank=1 count=3 : s=t0,s=t1,m", SharedItemsOf(bytes, "Blank"));
+            Assert.AreEqual("containsBlank=1 containsNumber=1 containsString=0 count=6 maxValue=7.5 minValue=0 : n=0,m,n=3,n=4.5,n=6,n=7.5", SharedItemsOf(bytes, "NumBlank"));
+            Assert.AreEqual("containsBlank=1 containsDate=1 containsNonDate=0 containsString=0 count=6 maxDate=2026-03-07T00:00:00 minDate=2026-03-01T00:00:00 : d=2026-03-01T00:00:00,m,d=2026-03-03T00:00:00,d=2026-03-04T00:00:00,d=2026-03-05T00:00:00,d=2026-03-06T00:00:00", SharedItemsOf(bytes, "DateBlank"));
+            Assert.AreEqual("containsDate=1 containsMixedTypes=1 count=6 maxDate=2026-03-07T00:00:00 minDate=2026-03-02T00:00:00 : s=t0,d=2026-03-02T00:00:00,s=t2,d=2026-03-04T00:00:00,s=t4,d=2026-03-06T00:00:00", SharedItemsOf(bytes, "TextDate"));
+            Assert.AreEqual("containsInteger=1 containsMixedTypes=1 containsNumber=1 count=5 maxValue=5 minValue=1 : b=1,n=1,b=0,n=3,n=5", SharedItemsOf(bytes, "FlagNum"));
+            Assert.AreEqual("count=5 : b=1,s=s1,b=0,s=s3,s=s5", SharedItemsOf(bytes, "TextFlag"));
+            Assert.AreEqual("5:h0,1,2,3,default", ItemsOf(bytes, 0));
+            Assert.AreEqual("4:h0,1,h2,default", ItemsOf(bytes, 6));
+        }
+
+        [TestMethod]
+        public void Pivot_items_follow_the_source_on_save()
+        {
+            byte[] bytes;
+            using (var p = PivotSourcePackage())
+            {
+                var data = p.Workbook.Worksheets["Data"];
+                var ws = p.Workbook.Worksheets["Pivot"];
+                var pivot = ws.PivotTables.Add(ws.Cells["A3"], data.Cells["A1:D9"], "PT1");
+                var region = pivot.Fields["Region"];
+                pivot.RowFields.Add(region);
+                pivot.DataFields.Add(pivot.Fields["Sales"]);
+                region.HideItems("East");
+                // the cells change after the item was hidden: a new region before the others, and North is gone
+                data.Cells["A2"].Value = "Centre";
+                data.Cells["A6"].Value = "Centre";
+                bytes = SavedBytes(p);
+                CollectionAssert.AreEqual(new object[] { "East" }, region.HiddenItems);
+            }
+            Assert.AreEqual("count=4 : s=Centre,s=South,s=East,s=West", SharedItemsOf(bytes, "Region"));
+            Assert.AreEqual("5:0,1,h2,3,default", ItemsOf(bytes, 0), "East is hidden where it is now");
+            // a column with both numbers and dates is not taken, and a calculated field has no items
+            using (var p = PivotSourcePackage())
+            {
+                var data = p.Workbook.Worksheets["Data"];
+                data.Cells["D3"].Value = new DateTime(2026, 1, 1);
+                var ws = p.Workbook.Worksheets["Pivot"];
+                var pivot = ws.PivotTables.Add(ws.Cells["A3"], data.Cells["A1:D9"], "PT1");
+                pivot.RowFields.Add(pivot.Fields["Qty"]);
+                Assert.ThrowsException<NotSupportedException>(() => pivot.Fields["Qty"].HideItems(4));
+                var calc = pivot.Fields.AddCalculatedField("Double", "Sales*2");
+                Assert.ThrowsException<InvalidOperationException>(() => calc.HideItems(1));
+            }
+        }
+
         // #34 (B5 of #8): saving and loading with asynchronous input and output.
         // A stream like the response of a web server that does not allow synchronous input and output: every synchronous read,
         // write and flush throws.

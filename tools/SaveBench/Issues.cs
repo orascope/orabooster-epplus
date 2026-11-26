@@ -376,6 +376,52 @@ static class Issues
             }
         }
 
+        // #62 (B2 of #8, part 4): pivot fields filtered by their items. issue62_pivot_items.xlsx, Sum of Sales by Region (North
+        // 80, South 100, East 120, West 140) and Product (P2 180, P0 150, P1 110):
+        //  PT1 Region with North hidden: South, East, West (360).
+        //  PT2 Region with only East and West shown (260).
+        //  PT3 Region in the rows and Product as a page field that shows P1: North 0... (the rows of P1: 40 and 70).
+        //  PT4 Qty (numbers) in the rows with 2 and 3 hidden, and the page field Region showing South and West.
+        // pivot-in-excel.ps1 prints them.
+        {
+            using (var p = new ExcelPackage())
+            {
+                var data = p.Workbook.Worksheets.Add("Data");
+                data.Cells["A1"].Value = "Region"; data.Cells["B1"].Value = "Product"; data.Cells["C1"].Value = "Sales"; data.Cells["D1"].Value = "Qty";
+                string[] regions = { "North", "South", "East", "West" };
+                for (int r = 2; r <= 9; r++) { data.Cells[r, 1].Value = regions[(r - 2) % 4]; data.Cells[r, 2].Value = "P" + (r % 3); data.Cells[r, 3].Value = r * 10; data.Cells[r, 4].Value = r; }
+                var ws = p.Workbook.Worksheets.Add("Pivot");
+                for (int i = 1; i <= 4; i++)
+                {
+                    var pivot = ws.PivotTables.Add(ws.Cells[4, 1 + (i - 1) * 4], data.Cells["A1:D9"], "PT" + i);
+                    pivot.DataFields.Add(pivot.Fields["Sales"]).Name = "Sum of Sales";
+                    switch (i)
+                    {
+                        case 1:
+                            pivot.RowFields.Add(pivot.Fields["Region"]);
+                            pivot.Fields["Region"].HideItems("North");
+                            break;
+                        case 2:
+                            pivot.RowFields.Add(pivot.Fields["Region"]);
+                            pivot.Fields["Region"].ShowItems("East", "West");
+                            break;
+                        case 3:
+                            pivot.RowFields.Add(pivot.Fields["Region"]);
+                            pivot.PageFields.Add(pivot.Fields["Product"]);
+                            pivot.Fields["Product"].SetPageItem("P1");
+                            break;
+                        case 4:
+                            pivot.RowFields.Add(pivot.Fields["Qty"]);
+                            pivot.Fields["Qty"].HideItems(2, 3);
+                            pivot.PageFields.Add(pivot.Fields["Region"]);
+                            pivot.Fields["Region"].ShowItems("South", "West");
+                            break;
+                    }
+                }
+                p.SaveAs(new FileInfo(Path.Combine(a_dir, "issue62_pivot_items.xlsx")));
+            }
+        }
+
         // #35: encrypted workbooks, password "orabooster": standard and agile encryption. open-in-excel.ps1 opens the files whose
         // names start with issue35_encrypted with that password; Excel must show 200 rows.
         foreach (EncryptionVersion version in new[] { EncryptionVersion.Standard, EncryptionVersion.Agile })
