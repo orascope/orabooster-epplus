@@ -671,6 +671,45 @@ namespace EPPlusTest
             }
         }
 
+        // A saved package as bytes.
+        static byte[] SavedBytes(ExcelPackage a_package) { var ms = new MemoryStream(); a_package.SaveAs(ms); return ms.ToArray(); }
+
+        // #39: the style of a loaded table and of a loaded pivot table. TableStyle was Medium6 whatever the file said.
+        [TestMethod]
+        public void Loaded_table_and_pivot_table_have_their_table_style()
+        {
+            byte[] bytes;
+            using (var p = new ExcelPackage())
+            {
+                var ws = p.Workbook.Worksheets.Add("S");
+                for (int r = 1; r <= 6; r++) for (int c = 1; c <= 3; c++) ws.Cells[r, c].Value = r == 1 ? (object)("H" + c) : c == 1 ? (object)("k" + (r % 2)) : r * c;
+                ws.Tables.Add(ws.Cells["A1:C6"], "Light").TableStyle = OfficeOpenXml.Table.TableStyles.Light1;
+                for (int r = 1; r <= 3; r++) ws.Cells[r, 6].Value = r == 1 ? (object)"X" : r;
+                var untouched = ws.Tables.Add(ws.Cells["F1:F3"], "Untouched");
+                Assert.AreEqual(OfficeOpenXml.Table.TableStyles.Medium9, untouched.TableStyle); // what a new table is written with (the property said Medium6)
+                for (int r = 1; r <= 3; r++) ws.Cells[r, 8].Value = r == 1 ? (object)"Y" : r;
+                ws.Tables.Add(ws.Cells["H1:H3"], "NoStyle").TableStyle = OfficeOpenXml.Table.TableStyles.None;
+                for (int r = 1; r <= 3; r++) ws.Cells[r, 10].Value = r == 1 ? (object)"Z" : r;
+                ws.Tables.Add(ws.Cells["J1:J3"], "Own").StyleName = "SomeStyleOfMine";
+                var pivotSheet = p.Workbook.Worksheets.Add("P");
+                var pivot = pivotSheet.PivotTables.Add(pivotSheet.Cells["A3"], ws.Cells["A1:C6"], "Pivot1");
+                pivot.RowFields.Add(pivot.Fields["H1"]);
+                pivot.DataFields.Add(pivot.Fields["H2"]);
+                pivot.TableStyle = OfficeOpenXml.Table.TableStyles.Dark3;
+                bytes = SavedBytes(p);
+            }
+            using (var p = new ExcelPackage(new MemoryStream(bytes)))
+            {
+                var tables = p.Workbook.Worksheets["S"].Tables;
+                Assert.AreEqual(OfficeOpenXml.Table.TableStyles.Light1, tables["Light"].TableStyle);
+                Assert.AreEqual(OfficeOpenXml.Table.TableStyles.Medium9, tables["Untouched"].TableStyle);
+                Assert.AreEqual(OfficeOpenXml.Table.TableStyles.None, tables["NoStyle"].TableStyle);
+                Assert.AreEqual(OfficeOpenXml.Table.TableStyles.Custom, tables["Own"].TableStyle);
+                Assert.AreEqual("SomeStyleOfMine", tables["Own"].StyleName);
+                Assert.AreEqual(OfficeOpenXml.Table.TableStyles.Dark3, p.Workbook.Worksheets["P"].PivotTables[0].TableStyle);
+            }
+        }
+
         // #34 (B5 of #8): saving and loading with asynchronous input and output.
         // A stream like the response of a web server that does not allow synchronous input and output: every synchronous read,
         // write and flush throws.

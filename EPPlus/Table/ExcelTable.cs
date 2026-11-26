@@ -127,6 +127,26 @@ namespace OfficeOpenXml.Table
             LoadXmlSafe(TableXml, Part.GetStream());
             init();
             Address = new ExcelAddressBase(GetXmlNodeString("@ref"));
+            // orabooster-epplus (issue #39): the style of a loaded table. TableStyle was Medium6 for every loaded table, whatever the
+            // file said, because only the StyleName setter set the field. The file was not wrong, only the property.
+            _tableStyle = StyleFromName(GetXmlNodeString(STYLENAME_PATH));
+        }
+        // orabooster-epplus (issue #39): the TableStyles value of a style name, as the StyleName setter finds it
+        static TableStyles StyleFromName(string name)
+        {
+            if (string.IsNullOrEmpty(name) || name == "None") return TableStyles.None;
+            if (name.StartsWith("TableStyle"))
+            {
+                try
+                {
+                    return (TableStyles)Enum.Parse(typeof(TableStyles), name.Substring(10, name.Length - 10), true);
+                }
+                catch
+                {
+                    return TableStyles.Custom;
+                }
+            }
+            return TableStyles.Custom;
         }
         internal ExcelTable(ExcelWorksheet sheet, ExcelAddressBase address, string name, int tblId) : 
             base(sheet.NameSpaceManager)
@@ -303,7 +323,7 @@ namespace OfficeOpenXml.Table
                 return _cols;
             }
         }
-        TableStyles _tableStyle = TableStyles.Medium6;
+        TableStyles _tableStyle = TableStyles.Medium9; // orabooster-epplus (issue #39): was Medium6, but a new table is written with TableStyleMedium9 (GetStartXml)
         /// <summary>
         /// The table style. If this property is cusom, the style from the StyleName propery is used.
         /// </summary>

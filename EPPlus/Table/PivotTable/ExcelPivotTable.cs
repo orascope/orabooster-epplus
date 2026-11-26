@@ -115,6 +115,29 @@ namespace OfficeOpenXml.Table.PivotTable
                     DataFields.AddInternal(dataField);
                 }
             }
+
+            // orabooster-epplus (issue #39): the style of a loaded pivot table. TableStyle was Medium6 for every loaded pivot
+            // table, because only the setters set the field. Found as the StyleName setter finds it.
+            string styleName = GetXmlNodeString(STYLENAME_PATH);
+            if (string.IsNullOrEmpty(styleName) || styleName == "None")
+            {
+                _tableStyle = TableStyles.None;
+            }
+            else if (styleName.StartsWith("PivotStyle"))
+            {
+                try
+                {
+                    _tableStyle = (TableStyles)Enum.Parse(typeof(TableStyles), styleName.Substring(10, styleName.Length - 10), true);
+                }
+                catch
+                {
+                    _tableStyle = TableStyles.Custom;
+                }
+            }
+            else
+            {
+                _tableStyle = TableStyles.Custom;
+            }
         }
         /// <summary>
         /// Add a new pivottable
@@ -938,7 +961,7 @@ namespace OfficeOpenXml.Table.PivotTable
                 SetXmlNodeString(STYLENAME_PATH, value, true);
             }
         }
-        TableStyles _tableStyle = Table.TableStyles.Medium6;
+        TableStyles _tableStyle = Table.TableStyles.Medium9; // orabooster-epplus (issue #39): was Medium6, but a new pivot table is written with PivotStyleMedium9 (GetStartXml)
         /// <summary>
         /// The table style. If this property is cusom the style from the StyleName propery is used.
         /// </summary>

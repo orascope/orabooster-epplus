@@ -25,6 +25,7 @@
 		- The export of a range: ToDataTable, ToText and SaveToText (delimited text, the reverse of LoadFromText), ToJson, ToHtml (issue #32).
 		- Saving and loading with asynchronous input and output: SaveAsync, SaveAsAsync, LoadAsync (issue #34).
 		- An encrypted workbook is loaded again on .NET 6 and later (issue #35).
+		- TableStyle of a loaded table or pivot table has the style of the file (issue #39).
 
 		4.5.3.8-ora.4
 		- A chart series added with no X range (null or "") no longer throws or writes a reference with no address (issue #27).
