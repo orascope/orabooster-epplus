@@ -66,7 +66,9 @@ namespace OfficeOpenXml
             _styleXml=xml;
             _wb = wb;
             _nameSpaceManager = NameSpaceManager;
-            SchemaNodeOrder = new string[] { "numFmts", "fonts", "fills", "borders", "cellStyleXfs", "cellXfs", "cellStyles", "dxfs" };
+            // orabooster-epplus (item B3 of issue #8): tableStyles and what comes after it in the schema, so that a new tableStyles
+            // element is put after dxfs and before colors and extLst
+            SchemaNodeOrder = new string[] { "numFmts", "fonts", "fills", "borders", "cellStyleXfs", "cellXfs", "cellStyles", "dxfs", "tableStyles", "colors", "extLst" };
             LoadFromDocument();
         }
         /// <summary>
@@ -572,6 +574,93 @@ namespace OfficeOpenXml
         public ExcelStyleCollection<ExcelXfs> CellXfs = new ExcelStyleCollection<ExcelXfs>();
         public ExcelStyleCollection<ExcelNamedStyleXml> NamedStyles = new ExcelStyleCollection<ExcelNamedStyleXml>();
         public ExcelStyleCollection<ExcelDxfStyleConditionalFormatting> Dxfs = new ExcelStyleCollection<ExcelDxfStyleConditionalFormatting>();
+
+        // orabooster-epplus (item B3 of issue #8): the table styles that are defined in the workbook. Read from the file when first
+        // asked for, so a workbook that never asks is saved as before.
+        const string tableStylesPath = "d:styleSheet/d:tableStyles";
+        OfficeOpenXml.Table.ExcelCustomTableStyleCollection _tableStyles;
+        /// <summary>
+        /// The table styles that are defined in this workbook (custom table styles): add one, set the formats of its parts, and
+        /// give its name to <see cref="OfficeOpenXml.Table.ExcelTable.StyleName"/>. The styles Excel has built in are not here.
+        /// </summary>
+        public OfficeOpenXml.Table.ExcelCustomTableStyleCollection TableStyles
+        {
+            get
+            {
+                if (_tableStyles == null)
+                {
+                    _tableStyles = new OfficeOpenXml.Table.ExcelCustomTableStyleCollection(this, _styleXml.SelectSingleNode(tableStylesPath, _nameSpaceManager));
+                }
+                return _tableStyles;
+            }
+        }
+        /// <summary>orabooster-epplus: a differential format with nothing set, not in the file yet.</summary>
+        internal ExcelDxfStyleConditionalFormatting NewDxf()
+        {
+            return new ExcelDxfStyleConditionalFormatting(NameSpaceManager, null, this);
+        }
+        /// <summary>orabooster-epplus: puts a differential format at the end of the dxfs of the file and gives its number.</summary>
+        /// <param name="dxfsNode">The dxfs element of the file</param>
+        /// <param name="dxf">The format</param>
+        /// <param name="basedOn">
+        /// The dxf element this format was loaded from, or null. The new element starts as a copy of it, so that what this library
+        /// has no property for (the size and name of a font, the inner borders of a table style, an alignment) is kept.
+        /// </param>
+        internal int AppendDxf(XmlElement dxfsNode, ExcelDxfStyleConditionalFormatting dxf, XmlNode basedOn)
+        {
+            int id = Dxfs.Count;
+            // In the list under a key of its own: a conditional format finds its dxf by the Id of its style, and must not find a
+            // dxf of a table style, which can have more in its XML than the Id says (what was copied from the file).
+            Dxfs.Add("tableStyle|" + id.ToString(System.Globalization.CultureInfo.InvariantCulture) + "|" + dxf.Id, dxf);
+            XmlElement elem;
+            if (basedOn == null)
+            {
+                elem = ((XmlDocument)TopNode).CreateElement("d", "dxf", ExcelPackage.schemaMain); // as the dxf of a conditional format below
+            }
+            else
+            {
+                elem = (XmlElement)basedOn.CloneNode(true);
+                // Out of the copy: everything the format has a property for. It is written again below from the properties, so a
+                // value that was taken away here (bold set to null, a colour changed from a theme colour to rgb) is not left behind.
+                string[] owned = {
+                    "d:font/d:b", "d:font/d:i", "d:font/d:strike", "d:font/d:u", "d:font/d:color", "d:numFmt",
+                    "d:fill/d:patternFill/@patternType", "d:fill/d:patternFill/d:fgColor", "d:fill/d:patternFill/d:bgColor",
+                    "d:border/d:left/@style", "d:border/d:left/d:color", "d:border/d:right/@style", "d:border/d:right/d:color",
+                    "d:border/d:top/@style", "d:border/d:top/d:color", "d:border/d:bottom/@style", "d:border/d:bottom/d:color" };
+                foreach (string path in owned) RemoveNode(elem.SelectSingleNode(path, NameSpaceManager));
+                // a fill is a pattern fill or a gradient fill, not both
+                if (dxf.Fill.HasValue) RemoveNode(elem.SelectSingleNode("d:fill/d:gradientFill", NameSpaceManager));
+            }
+            var helper = new XmlHelperInstance(NameSpaceManager, elem);
+            // the order of the schema (CT_Dxf, CT_Border, CT_PatternFill), for the nodes that are put into a copy
+            helper.SchemaNodeOrder = new string[] { "font", "numFmt", "fill", "alignment", "border", "protection", "extLst",
+                                                    "left", "right", "top", "bottom", "diagonal", "vertical", "horizontal", "fgColor", "bgColor" };
+            dxf.CreateNodes(helper, "");
+            if (basedOn != null)
+            {
+                // what is empty now, because its values were taken away
+                XmlNode patternFill = elem.SelectSingleNode("d:fill/d:patternFill", NameSpaceManager);
+                if (IsEmpty(patternFill)) RemoveNode(patternFill);
+                foreach (string path in new string[] { "d:font", "d:fill" })
+                {
+                    XmlNode node = elem.SelectSingleNode(path, NameSpaceManager);
+                    if (IsEmpty(node)) RemoveNode(node);
+                }
+            }
+            dxfsNode.AppendChild(elem);
+            return id;
+        }
+        static bool IsEmpty(XmlNode node)
+        {
+            return node != null && !node.HasChildNodes && node.Attributes.Count == 0;
+        }
+        static void RemoveNode(XmlNode node)
+        {
+            if (node == null) return;
+            XmlAttribute attribute = node as XmlAttribute;
+            if (attribute != null) attribute.OwnerElement.Attributes.Remove(attribute);
+            else node.ParentNode.RemoveChild(node);
+        }
         
         internal string Id
         {
@@ -806,6 +895,19 @@ namespace OfficeOpenXml
                         }
                     }
                 }
+            }
+            // orabooster-epplus (item B3 of issue #8): the table styles of the workbook that are new or were changed, with their dxfs
+            if (_tableStyles != null && _tableStyles.IsChanged)
+            {
+                if (dxfsNode == null) dxfsNode = CreateNode(dxfsPath);
+                XmlElement tableStylesNode = _styleXml.SelectSingleNode(tableStylesPath, _nameSpaceManager) as XmlElement;
+                if (tableStylesNode == null)
+                {
+                    tableStylesNode = (XmlElement)CreateNode(tableStylesPath);
+                    tableStylesNode.SetAttribute("defaultTableStyle", "TableStyleMedium2"); // what Excel writes in a new workbook
+                    tableStylesNode.SetAttribute("defaultPivotStyle", "PivotStyleLight16");
+                }
+                _tableStyles.Save(tableStylesNode, (XmlElement)dxfsNode);
             }
             if (dxfsNode != null) (dxfsNode as XmlElement).SetAttribute("count", Dxfs.Count.ToString());
         }

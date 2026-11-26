@@ -163,6 +163,50 @@ static class Issues
             }
         }
 
+        // #38: a table style defined in the workbook. issue38_table_style.xlsx has a table with the style "Ledger": header white and
+        // bold on dark blue (1F4E78), row bands of two rows in light blue (DDEBF7), the first column italic, the total row bold.
+        // issue38_table_style_changed.xlsx is that workbook loaded and changed: the header green (375623) and the last column bold.
+        // tablestyle-in-excel.ps1 prints what Excel shows.
+        {
+            var ms = new MemoryStream();
+            using (var p = new ExcelPackage())
+            {
+                var ws = p.Workbook.Worksheets.Add("Styled");
+                for (int r = 1; r <= 12; r++) for (int c = 1; c <= 5; c++) ws.Cells[r, c].Value = r == 1 ? (object)("H" + c) : c == 1 ? (object)("row " + r) : r * c;
+                var table = ws.Tables.Add(ws.Cells["A1:E12"], "LedgerTable");
+                var style = p.Workbook.Styles.TableStyles.Add("Ledger");
+                style.WholeTable.Border.Bottom.Style = OfficeOpenXml.Style.ExcelBorderStyle.Thin;
+                style.WholeTable.Border.Bottom.Color.Color = System.Drawing.Color.FromArgb(0xBF, 0xBF, 0xBF);
+                style.HeaderRow.Font.Bold = true;
+                style.HeaderRow.Font.Color.Color = System.Drawing.Color.White;
+                style.HeaderRow.Fill.PatternType = OfficeOpenXml.Style.ExcelFillStyle.Solid;
+                style.HeaderRow.Fill.BackgroundColor.Color = System.Drawing.Color.FromArgb(0x1F, 0x4E, 0x78);
+                style.FirstRowStripe.Fill.PatternType = OfficeOpenXml.Style.ExcelFillStyle.Solid;
+                style.FirstRowStripe.Fill.BackgroundColor.Color = System.Drawing.Color.FromArgb(0xDD, 0xEB, 0xF7);
+                style.SetBandSize(OfficeOpenXml.Table.eTableStyleElement.FirstRowStripe, 2);
+                style.SetBandSize(OfficeOpenXml.Table.eTableStyleElement.SecondRowStripe, 2);
+                style.TotalRow.Font.Bold = true;
+                style.TotalRow.Border.Top.Style = OfficeOpenXml.Style.ExcelBorderStyle.Double;
+                style.FirstColumn.Font.Italic = true;
+                table.StyleName = "Ledger";
+                table.ShowFirstColumn = true;
+                table.ShowRowStripes = true;
+                table.ShowTotal = true;
+                table.Columns[1].TotalsRowFunction = OfficeOpenXml.Table.RowFunctions.Sum;
+                p.SaveAs(ms);
+            }
+            File.WriteAllBytes(Path.Combine(a_dir, "issue38_table_style.xlsx"), ms.ToArray());
+            ms.Position = 0;
+            using (var p = new ExcelPackage(ms))
+            {
+                var style = p.Workbook.Styles.TableStyles["Ledger"];
+                style.HeaderRow.Fill.BackgroundColor.Color = System.Drawing.Color.FromArgb(0x37, 0x56, 0x23);
+                style.LastColumn.Font.Bold = true;
+                p.Workbook.Worksheets["Styled"].Tables[0].ShowLastColumn = true;
+                p.SaveAs(new FileInfo(Path.Combine(a_dir, "issue38_table_style_changed.xlsx")));
+            }
+        }
+
         // #40: a conditional format with a strike-through and a double underline (values over 4: A5 to A9), which were written in
         // a way Excel does not take. issue40_dxf_changed.xlsx is that workbook loaded, the font of the rule made red, and saved:
         // the rest of the format (strike, underline, the yellow fill) must still be there.
