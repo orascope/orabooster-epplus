@@ -43,12 +43,14 @@ namespace OfficeOpenXml.Drawing
         const string NsSle15 = "http://schemas.microsoft.com/office/drawing/2012/slicer";
         internal const string RelSlicer = "http://schemas.microsoft.com/office/2007/relationships/slicer";
         internal const string RelSlicerCache = "http://schemas.microsoft.com/office/2007/relationships/slicerCache";
-        const string ContentTypeSlicer = "application/vnd.ms-excel.slicer+xml";
-        const string ContentTypeSlicerCache = "application/vnd.ms-excel.slicerCache+xml";
-        const string SheetExtUri = "{3A4CF648-6AED-40f4-86FF-DC5316D8AED3}";     // x14:slicerList of table slicers
-        const string WorkbookExtUri = "{46BE6895-7355-4a93-B00E-2C351335B9C9}";  // x15:slicerCaches of table slicers
+        internal const string ContentTypeSlicer = "application/vnd.ms-excel.slicer+xml";
+        internal const string ContentTypeSlicerCache = "application/vnd.ms-excel.slicerCache+xml";
+        internal const string SheetExtUri = "{3A4CF648-6AED-40f4-86FF-DC5316D8AED3}";     // x14:slicerList of table slicers
+        internal const string PivotSheetExtUri = "{A8765BA9-456A-4dab-B4F3-ACF838C121DE}";       // x14:slicerList of the slicers of pivot tables (issue #65)
+        internal const string PivotWorkbookExtUri = "{BBE1A952-AA13-448e-AADC-164F8A28A991}";    // x14:slicerCaches of the slicers of pivot tables
+        internal const string WorkbookExtUri = "{46BE6895-7355-4a93-B00E-2C351335B9C9}";  // x15:slicerCaches of table slicers
         const string CacheExtUri = "{2F2917AC-EB37-4324-AD4E-5DD8C200BD13}";     // x15:tableSlicerCache
-        const string NamePath = "mc:AlternateContent/mc:Choice/xdr:graphicFrame/xdr:nvGraphicFramePr/xdr:cNvPr/@name";
+        internal const string NamePath = "mc:AlternateContent/mc:Choice/xdr:graphicFrame/xdr:nvGraphicFramePr/xdr:cNvPr/@name";
         internal const string GraphicPath = "mc:AlternateContent/mc:Choice/xdr:graphicFrame/a:graphic/a:graphicData[@uri='" + NsSle + "']/sle:slicer";
 
         readonly SlicerPart _slicerPart;
@@ -63,7 +65,7 @@ namespace OfficeOpenXml.Drawing
             ExcelWorkbook wb = ws.Workbook;
             string slicerName = UniqueSlicerName(wb, column.Name);
             _cache = SlicerCache.Create(wb, column, UniqueCacheName(wb, column.Name));
-            _slicerPart = SlicerPart.GetOrCreate(ws);
+            _slicerPart = SlicerPart.GetOrCreate(ws, false);
             _slicer = _slicerPart.Xml.CreateElement("slicer", NsX14);
             _slicer.SetAttribute("name", slicerName);
             _slicer.SetAttribute("cache", _cache.Name);
@@ -141,7 +143,7 @@ namespace OfficeOpenXml.Drawing
             return node;
         }
 
-        static string Esc(string text)
+        internal static string Esc(string text)
         {
             return SecurityElement.Escape(text ?? "");
         }
@@ -351,7 +353,7 @@ namespace OfficeOpenXml.Drawing
         }
 
         /// <summary>A slicer name that no slicer of the workbook has: the column name, then "name 1", "name 2" and so on.</summary>
-        static string UniqueSlicerName(ExcelWorkbook wb, string name)
+        internal static string UniqueSlicerName(ExcelWorkbook wb, string name)
         {
             var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (ExcelWorksheet ws in wb.Worksheets)
@@ -375,7 +377,7 @@ namespace OfficeOpenXml.Drawing
         /// A cache name that is not a defined name of the workbook or the name of another cache: Slicer_ and the column name with
         /// what a defined name can not have made an underscore, then Slicer_name1, Slicer_name2 and so on.
         /// </summary>
-        static string UniqueCacheName(ExcelWorkbook wb, string column)
+        internal static string UniqueCacheName(ExcelWorkbook wb, string column)
         {
             var sb = new StringBuilder("Slicer_");
             foreach (char c in column) sb.Append(char.IsLetterOrDigit(c) || c == '_' || c == '.' ? c : '_');
@@ -407,9 +409,9 @@ namespace OfficeOpenXml.Drawing
             xml.Save(part.GetStream(FileMode.Create, FileAccess.Write));
         }
 
-        const string XmlDeclaration = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>";
+        internal const string XmlDeclaration = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>";
 
-        static Uri NewUri(Packaging.ZipPackage package, string format)
+        internal static Uri NewUri(Packaging.ZipPackage package, string format)
         {
             for (int i = 1; ; i++)
             {
@@ -418,23 +420,29 @@ namespace OfficeOpenXml.Drawing
             }
         }
 
-        /// <summary>The ext with this uri in the extLst under a top node, made at the end of the extLst when it is not there.</summary>
-        static XmlElement GetOrCreateExt(XmlHelper owner, XmlNode top, string uri, string prefix, string ns)
+        /// <summary>
+        /// The ext with this uri in the extLst under a top node, made when it is not there: before the ext with the uri
+        /// "before" when that one is there, else at the end of the extLst.
+        /// </summary>
+        internal static XmlElement GetOrCreateExt(XmlHelper owner, XmlNode top, string uri, string prefix, string ns, string before)
         {
             XmlElement extLst = (XmlElement)owner.CreateNode("d:extLst");
+            XmlElement beforeExt = null;
             foreach (XmlElement ext in extLst.ChildNodes.OfElements("ext", ExcelPackage.schemaMain))
             {
                 if (ext.GetAttribute("uri") == uri) return ext;
+                if (before != null && ext.GetAttribute("uri") == before) beforeExt = ext;
             }
             XmlElement newExt = top.OwnerDocument.CreateElement("ext", ExcelPackage.schemaMain);
             newExt.SetAttribute("uri", uri);
             newExt.SetAttribute("xmlns:" + prefix, ns);
-            extLst.AppendChild(newExt);
+            if (beforeExt != null) extLst.InsertBefore(newExt, beforeExt);
+            else extLst.AppendChild(newExt);
             return newExt;
         }
 
         /// <summary>Takes a child out of an ext list (x14:slicer, x14:slicerCache by its r:id), and what is empty then.</summary>
-        static void RemoveFromExt(XmlNode top, string uri, string relId)
+        internal static void RemoveFromExt(XmlNode top, string uri, string relId)
         {
             XmlNode extLst = null;
             foreach (XmlNode child in top.ChildNodes)
@@ -498,11 +506,28 @@ namespace OfficeOpenXml.Drawing
                 return list;
             }
 
-            /// <summary>The slicer part of a worksheet for table slicers: the first one, or a new one.</summary>
-            internal static SlicerPart GetOrCreate(ExcelWorksheet ws)
+            /// <summary>
+            /// True if the part is the one of the slicers of pivot tables: the worksheet lists it in the ext of those
+            /// (orabooster-epplus issue #65). A sheet has one slicer part for its table slicers and one for the others.
+            /// </summary>
+            internal bool IsPivot(ExcelWorksheet ws)
+            {
+                XmlNamespaceManager ns = NewNs(ws.WorksheetXml.NameTable);
+                foreach (XmlElement item in ws.WorksheetXml.DocumentElement.SelectNodes("d:extLst/d:ext[@uri='" + PivotSheetExtUri + "']/x14:slicerList/x14:slicer", ns))
+                {
+                    if (item.GetAttribute("id", ExcelPackage.schemaRelationships) == Relation.Id) return true;
+                }
+                return false;
+            }
+
+            /// <summary>The slicer part of a worksheet for its table slicers, or for its pivot table slicers: the one it has, or a new one.</summary>
+            internal static SlicerPart GetOrCreate(ExcelWorksheet ws, bool pivot)
             {
                 List<SlicerPart> all = All(ws);
-                if (all.Count > 0) return all[0];
+                foreach (SlicerPart existing in all)
+                {
+                    if (existing.IsPivot(ws) == pivot) return existing;
+                }
                 var package = ws._package.Package;
                 Uri uri = NewUri(package, "/xl/slicers/slicer{0}.xml");
                 var part = package.CreatePart(uri, ContentTypeSlicer, ws._package.Compression);
@@ -511,8 +536,11 @@ namespace OfficeOpenXml.Drawing
                 xml.LoadXml(XmlDeclaration + "<slicers xmlns=\"" + NsX14 + "\" xmlns:mc=\"" + ExcelPackage.schemaMarkupCompatibility + "\" mc:Ignorable=\"x\" xmlns:x=\"" + ExcelPackage.schemaMain + "\" />");
                 var sp = new SlicerPart { Uri = uri, Part = part, Relation = rel, Xml = xml };
                 sp.Write();
-                // listed in the extLst of the worksheet
-                XmlElement ext = GetOrCreateExt(ws, ws.WorksheetXml.DocumentElement, SheetExtUri, "x15", NsX15);
+                // listed in the extLst of the worksheet: the slicers of pivot tables in an ext of x14, before the one of the
+                // table slicers (x15), as Excel has them
+                XmlElement ext = pivot
+                    ? GetOrCreateExt(ws, ws.WorksheetXml.DocumentElement, PivotSheetExtUri, "x14", NsX14, SheetExtUri)
+                    : GetOrCreateExt(ws, ws.WorksheetXml.DocumentElement, SheetExtUri, "x15", NsX15, null);
                 XmlElement list = ext.SelectSingleNode("x14:slicerList", NewNs(ws.WorksheetXml.NameTable)) as XmlElement;
                 if (list == null)
                 {
@@ -531,6 +559,7 @@ namespace OfficeOpenXml.Drawing
             internal void Delete(ExcelWorksheet ws)
             {
                 RemoveFromExt(ws.WorksheetXml.DocumentElement, SheetExtUri, Relation.Id);
+                RemoveFromExt(ws.WorksheetXml.DocumentElement, PivotSheetExtUri, Relation.Id);
                 ws.Part.DeleteRelationship(Relation.Id);
                 ws._package.Package.DeletePart(Uri);
                 All(ws).Remove(this);
@@ -633,7 +662,7 @@ namespace OfficeOpenXml.Drawing
                 var rel = wb.Part.CreateRelationship(UriHelper.GetRelativeUri(wb.WorkbookUri, uri), Packaging.TargetMode.Internal, RelSlicerCache);
 
                 // listed in the extLst of the workbook
-                XmlElement ext = GetOrCreateExt(wb, wb.WorkbookXml.DocumentElement, WorkbookExtUri, "x15", NsX15);
+                XmlElement ext = GetOrCreateExt(wb, wb.WorkbookXml.DocumentElement, WorkbookExtUri, "x15", NsX15, null);
                 XmlElement list = ext.SelectSingleNode("x15:slicerCaches", NewNs(wb.WorkbookXml.NameTable)) as XmlElement;
                 if (list == null)
                 {
@@ -653,6 +682,7 @@ namespace OfficeOpenXml.Drawing
             internal void Delete(ExcelWorkbook wb)
             {
                 RemoveFromExt(wb.WorkbookXml.DocumentElement, WorkbookExtUri, Relation.Id);
+                RemoveFromExt(wb.WorkbookXml.DocumentElement, PivotWorkbookExtUri, Relation.Id);
                 wb.Part.DeleteRelationship(Relation.Id);
                 wb._package.Package.DeletePart(Uri);
                 if (wb.Names.ContainsKey(Name)) wb.Names.Remove(Name);

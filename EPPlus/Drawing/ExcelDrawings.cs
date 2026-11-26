@@ -350,6 +350,24 @@ namespace OfficeOpenXml.Drawing
                 return slicer;
             }
             /// <summary>
+            /// orabooster-epplus (item B2 of issue #8, issue #65): adds a slicer of a field of a pivot table to the worksheet:
+            /// buttons with the items of the field, which filter the pivot table. The pivot table may be on another worksheet.
+            /// The drawing and the slicer are named after the field. Excel 2010 and later show it.
+            /// </summary>
+            /// <param name="field">The field of the pivot table: a field of the source, not a calculated or grouped one</param>
+            /// <returns>The slicer</returns>
+            public ExcelPivotTableSlicer AddPivotTableSlicer(ExcelPivotTableField field)
+            {
+                if (field == null) throw new ArgumentNullException("field");
+                if (Worksheet is ExcelChartsheet) throw new NotSupportedException("A chart sheet can not hold a slicer");
+                field.ItemsForSlicer(); // throws for a field that can have no items, before a drawing is made
+                XmlElement drawNode = CreateDrawingXml();
+                var slicer = new ExcelPivotTableSlicer(this, drawNode, field);
+                _drawings.Add(slicer);
+                if (!_drawingNames.ContainsKey(slicer.Name)) _drawingNames.Add(slicer.Name, _drawings.Count - 1);
+                return slicer;
+            }
+            /// <summary>
             /// Add a picure to the worksheet
             /// </summary>
             /// <param name="Name"></param>

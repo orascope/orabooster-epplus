@@ -221,34 +221,65 @@ namespace OfficeOpenXml.Table.PivotTable
         {
             XmlElement top = (XmlElement)field.TopNode;
             XmlElement old = top.SelectSingleNode("d:items", field.NameSpaceManager) as XmlElement;
-            // the order the field has, as long as it names the same items
+            // the order the field has, as long as it names the same items; and the item elements it has, which can say more
+            // than this library has a property for (a caption, collapsed details)
             var order = new List<int>();
+            var was = new Dictionary<int, XmlElement>();
+            var others = new List<XmlElement>(); // the subtotal items (t), as the file has them
             if (old != null)
             {
-                foreach (XmlElement item in old.SelectNodes("d:item[not(@t)]", field.NameSpaceManager))
+                foreach (XmlNode node in old.ChildNodes)
                 {
+                    XmlElement item = node as XmlElement;
+                    if (item == null) continue;
+                    if (item.HasAttribute("t")) { others.Add(item); continue; }
                     int x;
                     string xs = item.GetAttribute("x");
                     if (xs.Length == 0) x = 0;
                     else if (!int.TryParse(xs, NumberStyles.Integer, CultureInfo.InvariantCulture, out x)) continue;
-                    if (x >= 0 && x < count && !order.Contains(x)) order.Add(x);
+                    if (x >= 0 && x < count && !order.Contains(x)) { order.Add(x); was[x] = item; }
                 }
             }
             for (int i = 0; i < count; i++) if (!order.Contains(i)) order.Add(i);
 
             XmlDocument doc = top.OwnerDocument;
             XmlElement items = doc.CreateElement("items", ExcelPackage.schemaMain);
-            items.SetAttribute("count", (count + 1).ToString(CultureInfo.InvariantCulture));
             foreach (int x in order)
             {
-                XmlElement item = doc.CreateElement("item", ExcelPackage.schemaMain);
-                if (hidden != null && hidden.Contains(x)) item.SetAttribute("h", "1");
-                item.SetAttribute("x", x.ToString(CultureInfo.InvariantCulture));
+                XmlElement item;
+                if (was.TryGetValue(x, out item))
+                {
+                    item = (XmlElement)item.CloneNode(true);
+                    item.RemoveAttribute("h");
+                    if (hidden != null && hidden.Contains(x))
+                    {
+                        // h before x, as Excel writes it
+                        var attributes = new List<XmlAttribute>();
+                        foreach (XmlAttribute a in item.Attributes) attributes.Add(a);
+                        item.RemoveAllAttributes();
+                        item.SetAttribute("h", "1");
+                        foreach (XmlAttribute a in attributes) item.SetAttributeNode(a);
+                    }
+                }
+                else
+                {
+                    item = doc.CreateElement("item", ExcelPackage.schemaMain);
+                    if (hidden != null && hidden.Contains(x)) item.SetAttribute("h", "1");
+                    item.SetAttribute("x", x.ToString(CultureInfo.InvariantCulture));
+                }
                 items.AppendChild(item);
             }
-            XmlElement subtotal = doc.CreateElement("item", ExcelPackage.schemaMain);
-            subtotal.SetAttribute("t", "default");
-            items.AppendChild(subtotal);
+            if (others.Count == 0)
+            {
+                XmlElement subtotal = doc.CreateElement("item", ExcelPackage.schemaMain);
+                subtotal.SetAttribute("t", "default");
+                items.AppendChild(subtotal);
+            }
+            else
+            {
+                foreach (XmlElement other in others) items.AppendChild(other.CloneNode(true));
+            }
+            items.SetAttribute("count", items.ChildNodes.Count.ToString(CultureInfo.InvariantCulture));
             if (old != null) top.ReplaceChild(items, old);
             else top.InsertBefore(items, top.FirstChild); // CT_PivotField: items first
         }
@@ -488,6 +519,43 @@ namespace OfficeOpenXml.Table.PivotTable
             if (items.Count == 0) return;
             WriteItemsEverywhere(items);
             ApplyItems(items);
+        }
+
+        /// <summary>
+        /// For a slicer of this field (issue #65): the field has its items (made from the source when the cache has none), and
+        /// this gives them as the pivot field lists them: the number of the shared item and whether it is hidden.
+        /// </summary>
+        internal List<KeyValuePair<int, bool>> ItemsForSlicer()
+        {
+            List<SharedItem> items = EnsureItems();
+            // Items made here are written again by EnsureItems, without what is hidden: put that back. Items of the file are
+            // only written when they do not match the cache.
+            if (_itemsMadeHere || TopNode.SelectNodes("d:items/d:item[not(@t)]", NameSpaceManager).Count != items.Count) ApplyItems(items);
+            var list = new List<KeyValuePair<int, bool>>();
+            foreach (XmlElement item in TopNode.SelectNodes("d:items/d:item[not(@t)]", NameSpaceManager))
+            {
+                int x;
+                string xs = item.GetAttribute("x");
+                if (xs.Length == 0) x = 0;
+                else if (!int.TryParse(xs, NumberStyles.Integer, CultureInfo.InvariantCulture, out x)) continue;
+                string h = item.GetAttribute("h");
+                list.Add(new KeyValuePair<int, bool>(x, h == "1" || h == "true"));
+            }
+            return list;
+        }
+
+        /// <summary>The values of the items that are shown, when some are hidden; empty when all are shown.</summary>
+        internal object[] ShownItemsWhenFiltered()
+        {
+            List<SharedItem> items = ReadSharedItems();
+            object[] hidden = HiddenItems;
+            if (hidden.Length == 0) return new object[0];
+            var hiddenKeys = new HashSet<string>(StringComparer.Ordinal);
+            if (_hiddenKeys != null) foreach (string k in _hiddenKeys) hiddenKeys.Add(k);
+            else foreach (int x in HiddenOfXml()) if (x < items.Count) hiddenKeys.Add(items[x].Key);
+            var shown = new List<object>();
+            foreach (SharedItem i in items) if (!hiddenKeys.Contains(i.Key)) shown.Add(i.Value);
+            return shown.ToArray();
         }
     }
 }

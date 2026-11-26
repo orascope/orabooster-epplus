@@ -3030,6 +3030,13 @@ namespace OfficeOpenXml
                             {
                                 ((ExcelChartEx)d).Save(); // orabooster-epplus: the chart types of Excel 2016 (issue #21)
                             }
+                            else if (d is ExcelPivotTableSlicer)
+                            {
+                                // orabooster-epplus (issue #65): the items of the slicer cache, from the pivot field as it is now
+                                var pivotSlicer = (ExcelPivotTableSlicer)d;
+                                if (pivotSlicer.Field != null) pivotSlicer.Field.WriteItemsOnSave();
+                                pivotSlicer.WriteCacheItems();
+                            }
                         }
                         Packaging.ZipPackagePart partPack = Drawings.Part;
                         Drawings.DrawingXml.Save(partPack.GetStream(FileMode.Create, FileAccess.Write));

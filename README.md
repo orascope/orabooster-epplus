@@ -38,6 +38,7 @@ Full list with file names: [CHANGES.md](CHANGES.md). Every change is also marked
 |---|---|
 | 4.5.3.8-ora.5 (not released yet) | The export of a range: `range.ToDataTable()`, `range.ToText(format)` and `range.SaveToText(file)` (CSV, the reverse of `LoadFromText`), `range.ToJson()`, `range.ToHtml()` (#32) |
 | | Asynchronous input and output: `await package.SaveAsAsync(stream)`, `SaveAsAsync(file)`, `SaveAsync()`, `LoadAsync(stream)`, `LoadAsync(file)`. A stream that allows no synchronous writes (an ASP.NET Core response) can be saved to. The package itself is made in memory on the calling thread (#34) |
+| | Slicers of pivot tables: `var s = sheet.Drawings.AddPivotTableSlicer(pivot.Fields["Region"]); s.Select("East", "West");`. Pivot table slicers of a loaded workbook can be read, changed and removed (#65) |
 | | A pivot field filtered by its items: `field.HideItems("North")`, `field.ShowItems("P1", "P2")`, `pageField.SetPageItem(2026)`; `field.ItemValues`, `field.HiddenItems` (#62) |
 | | Label and value filters of a pivot field: `field.SetLabelFilter(ePivotLabelFilter.BeginsWith, "P1")`, `field.SetValueFilter(ePivotValueFilter.TopCount, salesDataField, 3)`; `field.LabelFilter`, `field.ValueFilter` (#60) |
 | | A pivot field sorted by a data field: `pivot.Fields["Region"].SetSort(eSortType.Descending, salesDataField)`; `field.SortDataField` (#56) |
@@ -101,7 +102,7 @@ Tests (EPPlusTest, MSTest, `net10.0-windows`):
 dotnet test EPPlusTest/EPPlusTest.Core.csproj -c Release
 ```
 
-1,234 passed, 0 failed, 214 skipped (the skipped ones are marked `[Ignore]` in EPPlus 4.5; most need files that are not in the repository). `OraBoosterIssuesTests` covers the fixes and the new features in this fork. Some old tests still write files to `C:\temp`.
+1,236 passed, 0 failed, 214 skipped (the skipped ones are marked `[Ignore]` in EPPlus 4.5; most need files that are not in the repository). `OraBoosterIssuesTests` covers the fixes and the new features in this fork. Some old tests still write files to `C:\temp`.
 Until ora.2 ten tests failed and one stopped the test host and was left out of the run; see #23 in [CHANGES.md](CHANGES.md).
 
 Tools:
@@ -109,7 +110,7 @@ Tools:
 - `tools/SaveBench/compare-xlsx.ps1 -A a.xlsx -B b.xlsx`: compares two workbooks part by part (entry names and uncompressed bytes).
 - `tools/SaveBench/open-in-excel.ps1 -Dir <folder>`: opens every workbook of a folder in a hidden Excel and reports the ones that need a repair (for the folder of `SaveBench issues`).
 - `tools/SaveBench/pivot-in-excel.ps1 -Path <xlsx>`: prints every pivot table as Excel shows it after the refresh on load (calculated fields, data fields, filters, the cells of the table), for the pivot samples (`issue54_pivot_calculated.xlsx`).
-- `tools/SaveBench/slicer-in-excel.ps1 -Path <xlsx>`: prints the slicer caches and slicers as Excel reads them (source, selection, caption, style, columns, place) and how many rows of the table are shown, for `issue48_slicers.xlsx`.
+- `tools/SaveBench/slicer-in-excel.ps1 -Path <xlsx>`: prints the slicer caches and slicers as Excel reads them (source, selection, caption, style, columns, place) and how many rows of the table are shown, for `issue48_slicers.xlsx` and `issue65_pivot_slicers.xlsx`.
 - `tools/SaveBench/cf-in-excel.ps1 -Path <xlsx> [-Cells "Sheet!A1,..."]`: prints the conditional formats of every sheet as Excel reads them (with the options of a data bar) and what Excel shows in some cells, for `issue46_databars.xlsx`.
 - `tools/SaveBench/tablestyle-in-excel.ps1 -Path <xlsx>`: prints the table style of the first table and what Excel shows in its cells (fill, font colour, bold, italic), for the `issue38_*` samples.
 - `SaveBench autofit [rows] [cols] [runs]` times `AutoFitColumns`; `SaveBench autofitrandom <path> <seed>` writes a workbook of random cells to compare two builds with `compare-xlsx.ps1`; `SaveBench autofitsample <path>` and `tools/SaveBench/autofit-in-excel.ps1 -Path <xlsx>` compare the widths with Excel's own autofit.

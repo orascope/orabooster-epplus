@@ -2376,6 +2376,162 @@ namespace EPPlusTest
             Assert.AreEqual("5:0,h1,2,3,default", ItemsOf(bytes, 1));
         }
 
+        // #65 (B2 of #8, part 5): slicers of pivot tables.
+        [TestMethod]
+        public void Pivot_table_slicer_is_written_as_Excel_writes_it()
+        {
+            XmlNamespaceManager ns;
+            byte[] bytes;
+            using (var p = PivotSourcePackage())
+            {
+                var data = p.Workbook.Worksheets["Data"];
+                var ws = p.Workbook.Worksheets["Pivot"];
+                var pivot = ws.PivotTables.Add(ws.Cells["A3"], data.Cells["A1:D9"], "PT1");
+                var region = pivot.Fields["Region"];
+                pivot.RowFields.Add(region);
+                pivot.DataFields.Add(pivot.Fields["Sales"]);
+                var slicer = ws.Drawings.AddPivotTableSlicer(region);
+                Assert.AreEqual("Region", slicer.Name);
+                Assert.AreEqual("Region", slicer.SlicerName);
+                Assert.AreEqual("Slicer_Region", slicer.CacheName);
+                Assert.AreSame(pivot, slicer.PivotTable);
+                Assert.AreSame(region, slicer.Field);
+                Assert.AreEqual("Region", slicer.Caption);
+                Assert.AreEqual(0, slicer.SelectedItems.Length);
+                slicer.SetPosition(2, 0, 6, 0);
+                slicer.Select("East", "West");
+                CollectionAssert.AreEqual(new object[] { "East", "West" }, slicer.SelectedItems);
+                CollectionAssert.AreEqual(new object[] { "North", "South" }, region.HiddenItems, "the selection is the items of the pivot field");
+                // a calculated field has no items, so no slicer
+                var calc = pivot.Fields.AddCalculatedField("Double", "Sales*2");
+                int drawings = ws.Drawings.Count;
+                Assert.ThrowsException<InvalidOperationException>(() => ws.Drawings.AddPivotTableSlicer(calc));
+                Assert.AreEqual(drawings, ws.Drawings.Count, "nothing was added by the call that threw");
+                Assert.ThrowsException<ArgumentNullException>(() => ws.Drawings.AddPivotTableSlicer(null));
+                bytes = SavedBytes(p);
+            }
+            CollectionAssert.IsSubsetOf(new[] { "xl/slicerCaches/slicerCache1.xml", "xl/slicers/slicer1.xml" }, Entries(bytes));
+
+            // the slicer cache: the pivot table (the id of its sheet and its name) and the items with what is selected
+            XmlElement cache = Part(bytes, "xl/slicerCaches/slicerCache1.xml", out ns);
+            Assert.AreEqual("Slicer_Region", cache.GetAttribute("name"));
+            Assert.AreEqual("Region", cache.GetAttribute("sourceName"));
+            var pt = (XmlElement)cache.SelectSingleNode("x14:pivotTables/x14:pivotTable", ns);
+            Assert.AreEqual("PT1", pt.GetAttribute("name"));
+            XmlElement workbook = Part(bytes, "xl/workbook.xml", out ns);
+            Assert.AreEqual(workbook.SelectSingleNode("d:sheets/d:sheet[@name='Pivot']/@sheetId", ns).Value, pt.GetAttribute("tabId"));
+            cache = Part(bytes, "xl/slicerCaches/slicerCache1.xml", out ns);
+            var tabular = (XmlElement)cache.SelectSingleNode("x14:data/x14:tabular", ns);
+            Assert.AreEqual("4", ((XmlElement)tabular.SelectSingleNode("x14:items", ns)).GetAttribute("count"));
+            CollectionAssert.AreEqual(new[] { "0:", "1:", "2:1", "3:1" },
+                tabular.SelectNodes("x14:items/x14:i", ns).OfType<XmlElement>().Select(e => e.GetAttribute("x") + ":" + e.GetAttribute("s")).ToArray());
+            // the pivot cache has the id the slicer cache names
+            XmlElement pivotCache = Part(bytes, "xl/pivotCache/pivotCacheDefinition1.xml", out ns);
+            Assert.AreEqual(tabular.GetAttribute("pivotCacheId"), pivotCache.SelectSingleNode("d:extLst/d:ext[@uri='{725AE2AE-9491-48be-B2B4-4EB974FC3084}']/x14:pivotCacheDefinition/@pivotCacheId", ns).Value);
+            Assert.AreEqual("extLst", pivotCache.LastChild.LocalName);
+            // the pivot table and its cache say Excel 2010: Excel drops the slicer of one that says Excel 2007
+            Assert.AreEqual("4|4|3", pivotCache.GetAttribute("createdVersion") + "|" + pivotCache.GetAttribute("refreshedVersion") + "|" + pivotCache.GetAttribute("minRefreshableVersion"));
+            XmlElement pivotXml = Part(bytes, "xl/pivotTables/pivotTable1.xml", out ns);
+            Assert.AreEqual("4|4|3", pivotXml.GetAttribute("createdVersion") + "|" + pivotXml.GetAttribute("updatedVersion") + "|" + pivotXml.GetAttribute("minRefreshableVersion"));
+            Assert.AreEqual("count=4 : s=North,s=South,s=East,s=West", SharedItemsOf(bytes, "Region"));
+            Assert.AreEqual("5:h0,h1,2,3,default", ItemsOf(bytes, 0));
+
+            // the workbook and the worksheet list the parts in the ext of x14
+            workbook = Part(bytes, "xl/workbook.xml", out ns);
+            string cacheRel = Part(bytes, "xl/_rels/workbook.xml.rels", out ns).SelectSingleNode("rel:Relationship[@Type='http://schemas.microsoft.com/office/2007/relationships/slicerCache']/@Id", ns).Value;
+            workbook = Part(bytes, "xl/workbook.xml", out ns);
+            Assert.AreEqual(cacheRel, workbook.SelectSingleNode("d:extLst/d:ext[@uri='{BBE1A952-AA13-448e-AADC-164F8A28A991}']/x14:slicerCaches/x14:slicerCache/@r:id", ns).Value);
+            Assert.AreEqual("#N/A", workbook.SelectSingleNode("d:definedNames/d:definedName[@name='Slicer_Region']", ns).InnerText);
+            string slicerRel = Part(bytes, "xl/worksheets/_rels/sheet2.xml.rels", out ns).SelectSingleNode("rel:Relationship[@Type='http://schemas.microsoft.com/office/2007/relationships/slicer']/@Id", ns).Value;
+            XmlElement sheet = Part(bytes, "xl/worksheets/sheet2.xml", out ns);
+            Assert.AreEqual(slicerRel, sheet.SelectSingleNode("d:extLst/d:ext[@uri='{A8765BA9-456A-4dab-B4F3-ACF838C121DE}']/x14:slicerList/x14:slicer/@r:id", ns).Value);
+            XmlElement slicers = Part(bytes, "xl/slicers/slicer1.xml", out ns);
+            CollectionAssert.AreEqual(new[] { "name=Region", "cache=Slicer_Region", "caption=Region", "rowHeight=241300" },
+                ((XmlElement)slicers.SelectSingleNode("x14:slicer", ns)).Attributes.Cast<XmlAttribute>().Select(a => a.Name + "=" + a.Value).ToArray());
+
+            // the drawing (of the second sheet): one cell, the slicer for a14
+            XmlElement drawing = Part(bytes, Entries(bytes).Single(e => e.StartsWith("xl/drawings/drawing", StringComparison.Ordinal)), out ns);
+            var anchor = (XmlElement)drawing.SelectSingleNode("xdr:twoCellAnchor", ns);
+            Assert.AreEqual("oneCell", anchor.GetAttribute("editAs"));
+            Assert.AreEqual("a14", ((XmlElement)anchor.SelectSingleNode("mc:AlternateContent/mc:Choice", ns)).GetAttribute("Requires"));
+            Assert.AreEqual("Region", anchor.SelectSingleNode("mc:AlternateContent/mc:Choice/xdr:graphicFrame/a:graphic/a:graphicData/sle:slicer/@name", ns).Value);
+            Assert.AreEqual("6", anchor.SelectSingleNode("xdr:from/xdr:col", ns).InnerText);
+        }
+
+        [TestMethod]
+        public void Pivot_table_slicer_is_loaded_follows_the_field_and_is_removed()
+        {
+            XmlNamespaceManager ns;
+            byte[] bytes;
+            using (var p = PivotSourcePackage())
+            {
+                var data = p.Workbook.Worksheets["Data"];
+                var ws = p.Workbook.Worksheets["Pivot"];
+                var pivot = ws.PivotTables.Add(ws.Cells["A3"], data.Cells["A1:D9"], "PT1");
+                pivot.RowFields.Add(pivot.Fields["Region"]);
+                pivot.RowFields.Add(pivot.Fields["Product"]);
+                pivot.DataFields.Add(pivot.Fields["Sales"]);
+                ws.Drawings.AddPivotTableSlicer(pivot.Fields["Region"]).Select("East");
+                // a table slicer on the same sheet: each kind has its own slicer part and its own ext
+                var table = data.Tables.Add(data.Cells["F1:F3"], "Other");
+                ws.Drawings.AddTableSlicer(table.Columns[0]);
+                bytes = SavedBytes(p);
+            }
+            XmlElement sheet = Part(bytes, "xl/worksheets/sheet2.xml", out ns);
+            CollectionAssert.AreEqual(new[] { "{A8765BA9-456A-4dab-B4F3-ACF838C121DE}", "{3A4CF648-6AED-40f4-86FF-DC5316D8AED3}" },
+                sheet.SelectNodes("d:extLst/d:ext/@uri", ns).OfType<XmlNode>().Select(n => n.Value).ToArray(), "the ext of the pivot table slicers comes first");
+            Assert.AreEqual(2, Entries(bytes).Count(e => e.StartsWith("xl/slicers/", StringComparison.Ordinal)));
+
+            using (var p = new ExcelPackage(new MemoryStream(bytes)))
+            {
+                var ws = p.Workbook.Worksheets["Pivot"];
+                var slicer = ws.Drawings.OfType<OfficeOpenXml.Drawing.ExcelPivotTableSlicer>().Single();
+                Assert.AreEqual(1, ws.Drawings.OfType<OfficeOpenXml.Drawing.ExcelTableSlicer>().Count());
+                Assert.AreEqual("PT1", slicer.PivotTable.Name);
+                Assert.AreEqual("Region", slicer.Field.Name);
+                CollectionAssert.AreEqual(new object[] { "East" }, slicer.SelectedItems);
+                // loaded and saved with no change: the parts as they were
+                byte[] same = SavedBytes(p);
+                foreach (string entry in new[] { "xl/slicerCaches/slicerCache1.xml", "xl/slicers/slicer1.xml", "xl/pivotTables/pivotTable1.xml" })
+                {
+                    Assert.AreEqual(Part(bytes, entry, out ns).OuterXml, Part(same, entry, out ns).OuterXml, entry);
+                }
+                // the items set on the field, not through the slicer: the slicer cache follows on save
+                slicer.Field.ShowItems("North", "South", "West");
+                slicer.Caption = "Regions";
+                bytes = SavedBytes(p);
+            }
+            XmlElement cache = Part(bytes, "xl/slicerCaches/slicerCache1.xml", out ns);
+            CollectionAssert.AreEqual(new[] { "0:1", "1:1", "2:", "3:1" },
+                cache.SelectNodes("x14:data/x14:tabular/x14:items/x14:i", ns).OfType<XmlElement>().Select(e => e.GetAttribute("x") + ":" + e.GetAttribute("s")).ToArray());
+            Assert.AreEqual("5:0,1,h2,3,default", ItemsOf(bytes, 0));
+
+            using (var p = new ExcelPackage(new MemoryStream(bytes)))
+            {
+                var ws = p.Workbook.Worksheets["Pivot"];
+                var slicer = ws.Drawings.OfType<OfficeOpenXml.Drawing.ExcelPivotTableSlicer>().Single();
+                Assert.AreEqual("Regions", slicer.Caption);
+                slicer.ClearSelection();
+                Assert.AreEqual(0, slicer.Field.HiddenItems.Length);
+                ws.Drawings.Remove(slicer);
+                Assert.IsFalse(p.Workbook.Names.ContainsKey("Slicer_Region"));
+                bytes = SavedBytes(p);
+            }
+            // the slicer of the pivot table is gone with its part, cache, name and ext; the table slicer is as it was
+            Assert.AreEqual(1, Entries(bytes).Count(e => e.StartsWith("xl/slicers/", StringComparison.Ordinal)));
+            Assert.AreEqual(1, Entries(bytes).Count(e => e.StartsWith("xl/slicerCaches/", StringComparison.Ordinal)));
+            sheet = Part(bytes, "xl/worksheets/sheet2.xml", out ns);
+            CollectionAssert.AreEqual(new[] { "{3A4CF648-6AED-40f4-86FF-DC5316D8AED3}" }, sheet.SelectNodes("d:extLst/d:ext/@uri", ns).OfType<XmlNode>().Select(n => n.Value).ToArray());
+            XmlElement workbook = Part(bytes, "xl/workbook.xml", out ns);
+            Assert.IsNull(workbook.SelectSingleNode("d:extLst/d:ext[@uri='{BBE1A952-AA13-448e-AADC-164F8A28A991}']", ns));
+            Assert.IsNull(workbook.SelectSingleNode("d:definedNames/d:definedName[@name='Slicer_Region']", ns));
+            using (var p = new ExcelPackage(new MemoryStream(bytes)))
+            {
+                Assert.AreEqual(1, p.Workbook.Worksheets["Pivot"].Drawings.OfType<OfficeOpenXml.Drawing.ExcelTableSlicer>().Count());
+                Assert.AreEqual(0, p.Workbook.Worksheets["Pivot"].Drawings.OfType<OfficeOpenXml.Drawing.ExcelPivotTableSlicer>().Count());
+            }
+        }
+
         // #34 (B5 of #8): saving and loading with asynchronous input and output.
         // A stream like the response of a web server that does not allow synchronous input and output: every synchronous read,
         // write and flush throws.
