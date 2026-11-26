@@ -60,6 +60,8 @@ The B items of the candidate list in #8, taken one at a time. They only add: a w
   - **What a caller can see differently:** a rule of the file that was changed is written with a new dxf that has what its old dxf had beside the properties; before, it was written from the properties only.
   - Checked in Excel 16: a workbook Excel made with two such rules (bold, gradient red to white and blue to white) shows the red and the blue gradient after it was loaded and saved; with ora.4 both were blue. With one rule changed (font green) Excel shows the red gradient with a green bold font.
   - Tests: 2 new (`Conditional_formats_of_a_file_keep_their_own_dxf`, `Conditional_format_added_to_a_file_with_no_dxfs`); both fail without the change. Whole suite: 1,218 passed, 0 failed, 214 skipped. The samples of `SaveBench issues` are part by part the same.
+- **#49** A drawing with `EditAs` `Absolute` went back to where it was made when the package was saved, whatever `SetPosition` said: before a save `AdjustPositionAndSize` puts such a drawing at the position it keeps, and `SetPosition` did not change that position. `EPPlus/Drawing/ExcelDrawingBase.cs`: `SetPosition` keeps the position it writes. Drawings with `TwoCell` (the default) and `OneCell` were not affected. Found with #48: Excel makes slicers absolute.
+  - Tests: 1 new (`Absolute_drawing_is_saved_where_it_was_put`); it fails without the change. Whole suite: 1,222 passed, 0 failed, 214 skipped. The samples of `SaveBench issues` are part by part the same.
 
 ## 4.5.3.8-ora.4 (2026-11-25, OraScope Co.,Ltd.)
 

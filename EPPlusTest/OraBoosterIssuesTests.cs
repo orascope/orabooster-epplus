@@ -1490,6 +1490,40 @@ namespace EPPlusTest
             Assert.IsNull(sheet.SelectSingleNode("d:extLst", ns));
         }
 
+        // #49: a drawing with EditAs Absolute is saved where SetPosition put it. It went back to where it was made.
+        [TestMethod]
+        public void Absolute_drawing_is_saved_where_it_was_put()
+        {
+            XmlNamespaceManager ns;
+            byte[] bytes;
+            using (var p = new ExcelPackage())
+            {
+                var ws = p.Workbook.Worksheets.Add("S");
+                var shape = ws.Drawings.AddShape("Box", eShapeStyle.Rect);
+                shape.EditAs = OfficeOpenXml.Drawing.eEditAs.Absolute;
+                shape.SetPosition(5, 0, 3, 0);
+                shape.SetSize(100, 60);
+                var moved = ws.Drawings.AddShape("Moved twice", eShapeStyle.Rect);
+                moved.EditAs = OfficeOpenXml.Drawing.eEditAs.Absolute;
+                moved.SetPosition(1, 0, 1, 0);
+                moved.SetPosition(8, 10, 6, 20);
+                var oneCell = ws.Drawings.AddShape("One cell", eShapeStyle.Rect);
+                oneCell.EditAs = OfficeOpenXml.Drawing.eEditAs.OneCell;
+                oneCell.SetPosition(12, 0, 2, 0);
+                bytes = SavedBytes(p);
+            }
+            XmlElement drawing = PartOf(bytes, "xl/drawings/drawing1.xml", out ns);
+            ns.AddNamespace("xdr", "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing");
+            var anchors = drawing.SelectNodes("xdr:twoCellAnchor", ns).OfType<XmlElement>().ToList();
+            Func<XmlElement, string> from = a => a.SelectSingleNode("xdr:from/xdr:row", ns).InnerText + "," + a.SelectSingleNode("xdr:from/xdr:col", ns).InnerText;
+            Assert.AreEqual("5,3", from(anchors[0]));
+            Assert.AreEqual("8,6", from(anchors[1]));
+            Assert.AreEqual((10 * 9525).ToString(), anchors[1].SelectSingleNode("xdr:from/xdr:rowOff", ns).InnerText);
+            Assert.AreEqual("12,2", from(anchors[2]));
+            // the size is kept too: 100 pixels of columns 64 pixels wide from column 3
+            Assert.AreEqual("4", anchors[0].SelectSingleNode("xdr:to/xdr:col", ns).InnerText);
+        }
+
         // #34 (B5 of #8): saving and loading with asynchronous input and output.
         // A stream like the response of a web server that does not allow synchronous input and output: every synchronous read,
         // write and flush throws.
