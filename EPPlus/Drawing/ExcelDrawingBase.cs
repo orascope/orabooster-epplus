@@ -718,6 +718,11 @@ namespace OfficeOpenXml.Drawing
 
             SetPixelWidth(_width);
             SetPixelHeight(_height);
+            // orabooster-epplus (issue #49): the position is kept for AdjustPositionAndSize, which puts a drawing with EditAs
+            // Absolute at _top and _left before a save. They were not changed here (_doNotAdjust stops GetPositionSize), so the
+            // drawing went back to where it was made.
+            _top = GetPixelTop();
+            _left = GetPixelLeft();
             _doNotAdjust = false;
         }
         /// <summary>
