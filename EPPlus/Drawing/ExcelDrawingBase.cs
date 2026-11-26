@@ -357,6 +357,9 @@ namespace OfficeOpenXml.Drawing
             }
             else
             {
+                // orabooster-epplus (issue #48): a slicer of a table (in an AlternateContent); anything else stays a plain drawing
+                ExcelDrawing slicer = ExcelTableSlicer.TryLoad(drawings, node);
+                if (slicer != null) return slicer;
                 return new ExcelDrawing(drawings, node, "");
             }
         }
