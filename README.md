@@ -39,6 +39,7 @@ Full list with file names: [CHANGES.md](CHANGES.md). Every change is also marked
 | 4.5.3.8-ora.5 (not released yet) | The export of a range: `range.ToDataTable()`, `range.ToText(format)` and `range.SaveToText(file)` (CSV, the reverse of `LoadFromText`), `range.ToJson()`, `range.ToHtml()` (#32) |
 | | Asynchronous input and output: `await package.SaveAsAsync(stream)`, `SaveAsAsync(file)`, `SaveAsync()`, `LoadAsync(stream)`, `LoadAsync(file)`. A stream that allows no synchronous writes (an ASP.NET Core response) can be saved to. The package itself is made in memory on the calling thread (#34) |
 | | Fix: an encrypted workbook is loaded again on .NET 6 and later, also one that Excel encrypted (#35) |
+| | Fix: `TableStyle` of a loaded table or pivot table has the style of the file; it was `Medium6` for every one (#39) |
 | 4.5.3.8-ora.4 | A chart series with no X range: `chart.Series.Add("B2:B20", null)` no longer throws, and `""` no longer writes a reference with no address (#27) |
 | | A loaded `XYScatter` chart has its chart type (it was `XYScatterLinesNoMarkers`), so a series added to it has markers and no line (#29) |
 | 4.5.3.8-ora.3 | Ignored errors: `ws.IgnoredErrors.Add("A2:A100", eErrorChecks.NumberStoredAsText)` hides the green error-check triangles on a range (#9) |
@@ -89,7 +90,7 @@ Tests (EPPlusTest, MSTest, `net10.0-windows`):
 dotnet test EPPlusTest/EPPlusTest.Core.csproj -c Release
 ```
 
-1,211 passed, 0 failed, 214 skipped (the skipped ones are marked `[Ignore]` in EPPlus 4.5; most need files that are not in the repository). `OraBoosterIssuesTests` covers the fixes and the new features in this fork. Some old tests still write files to `C:\temp`.
+1,212 passed, 0 failed, 214 skipped (the skipped ones are marked `[Ignore]` in EPPlus 4.5; most need files that are not in the repository). `OraBoosterIssuesTests` covers the fixes and the new features in this fork. Some old tests still write files to `C:\temp`.
 Until ora.2 ten tests failed and one stopped the test host and was left out of the run; see #23 in [CHANGES.md](CHANGES.md).
 
 Tools:

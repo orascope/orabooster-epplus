@@ -24,6 +24,10 @@ The B items of the candidate list in #8, taken one at a time. They only add: a w
   - It was not seen because every test in `EPPlusTest/Encrypt.cs` is `[Ignore]` (they need files). Saving was not wrong: Excel opened the encrypted workbooks all along.
   - Checked in Excel 16: `issue35_encrypted_standard.xlsx` and `issue35_encrypted_agile.xlsx` of `SaveBench issues` open with the password and have their 200 rows; a workbook Excel saved with a password is loaded with its 300 rows (agile, AES 256).
   - Tests: 1 new (`Encrypted_workbook_is_loaded_again`): standard and agile encryption with AES 128, 192 and 256, a stream, a file and a byte array, a wrong password. Whole suite: 1,208 passed, 0 failed, 214 skipped. The samples that were there before are part by part the same.
+- **#39** `TableStyle` of a loaded table and of a loaded pivot table was `Medium6` whatever the file said, and `Medium6` for a new one that is written with `TableStyleMedium9` (`PivotStyleMedium9`).
+  - Only the setters of `TableStyle` and `StyleName` set the field; the constructor of a loaded table did not read it. `EPPlus/Table/ExcelTable.cs` and `EPPlus/Table/PivotTable/ExcelPivotTable.cs` now find it from the style name of the file, the way the `StyleName` setter does: `None` for no name, the value of a name of Excel, `Custom` for any other name. The field starts as `Medium9`, which is what `GetStartXml` writes.
+  - The saved file was not wrong and is not changed: the name in the XML was kept all along. **What a caller can see differently:** `TableStyle` of a loaded table or pivot table has its value, and `TableStyle` of a new one is `Medium9` before it is set.
+  - Tests: 1 new (`Loaded_table_and_pivot_table_have_their_table_style`). Whole suite: 1,212 passed, 0 failed, 214 skipped. The samples of `SaveBench issues` are part by part the same.
 
 ## 4.5.3.8-ora.4 (2026-11-25, OraScope Co.,Ltd.)
 
