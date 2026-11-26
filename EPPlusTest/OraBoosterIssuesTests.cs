@@ -1258,6 +1258,18 @@ namespace EPPlusTest
                 Assert.AreEqual(10, bar.MinLength);
                 Assert.AreEqual(90, bar.MaxLength);
                 Assert.IsFalse(bar.HasExcel2010Options, "reading the options makes nothing");
+                // nor setting them to what they are
+                bar.FillType = OfficeOpenXml.ConditionalFormatting.eDataBarFillType.Gradient;
+                bar.ShowBorder = false;
+                bar.BorderColor = null;
+                bar.NegativeFillColor = null;
+                bar.NegativeBorderColor = null;
+                bar.AxisPosition = OfficeOpenXml.ConditionalFormatting.eDataBarAxisPosition.None;
+                bar.AxisColor = null;
+                bar.Direction = OfficeOpenXml.ConditionalFormatting.eDataBarDirection.Context;
+                bar.MinLength = 10;
+                bar.MaxLength = 90;
+                Assert.IsFalse(bar.HasExcel2010Options, "an option set to the value it has makes nothing");
                 plain = SavedBytes(p);
             }
             XmlElement sheet = SheetWithX14(plain, "xl/worksheets/sheet1.xml", out ns);

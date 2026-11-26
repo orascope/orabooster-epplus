@@ -89,6 +89,12 @@ namespace OfficeOpenXml.ConditionalFormatting
             dataBar.InsertBefore(color, before);
         }
 
+        // A bar with no x14 part, given the value an option already has: nothing to write, and no part is made for it
+        bool NothingToDo(bool sameValue)
+        {
+            return sameValue && X14DataBar(false) == null;
+        }
+
         static bool IsTrue(string value)
         {
             return value == "1" || value.Equals("true", StringComparison.OrdinalIgnoreCase);
@@ -109,7 +115,11 @@ namespace OfficeOpenXml.ConditionalFormatting
         public eDataBarFillType FillType
         {
             get { return IsFalse(GetX14Attribute("gradient")) ? eDataBarFillType.Solid : eDataBarFillType.Gradient; }
-            set { SetX14Attribute("gradient", value == eDataBarFillType.Solid ? "0" : null); }
+            set
+            {
+                if (NothingToDo(value == FillType)) return;
+                SetX14Attribute("gradient", value == eDataBarFillType.Solid ? "0" : null);
+            }
         }
 
         /// <summary>
@@ -121,6 +131,7 @@ namespace OfficeOpenXml.ConditionalFormatting
             get { return IsTrue(GetX14Attribute("border")); }
             set
             {
+                if (NothingToDo(value == ShowBorder)) return;
                 SetX14Attribute("border", value ? "1" : null);
                 if (value && BorderColor == null) BorderColor = Color;
             }
@@ -130,7 +141,11 @@ namespace OfficeOpenXml.ConditionalFormatting
         public Color? BorderColor
         {
             get { return GetX14Color("borderColor"); }
-            set { SetX14Color("borderColor", value); }
+            set
+            {
+                if (NothingToDo(value == null)) return;
+                SetX14Color("borderColor", value);
+            }
         }
 
         /// <summary>The colour of the bars of negative values; null for the colour of the bar.</summary>
@@ -143,6 +158,7 @@ namespace OfficeOpenXml.ConditionalFormatting
             }
             set
             {
+                if (NothingToDo(value == null)) return;
                 SetX14Color("negativeFillColor", value);
                 SetX14Attribute("negativeBarColorSameAsPositive", value == null ? "1" : null);
             }
@@ -158,6 +174,7 @@ namespace OfficeOpenXml.ConditionalFormatting
             }
             set
             {
+                if (NothingToDo(value == null)) return;
                 SetX14Color("negativeBorderColor", value);
                 SetX14Attribute("negativeBarBorderColorSameAsPositive", value == null ? null : "0");
             }
@@ -181,6 +198,7 @@ namespace OfficeOpenXml.ConditionalFormatting
             }
             set
             {
+                if (NothingToDo(value == AxisPosition)) return;
                 SetX14Attribute("axisPosition", value == eDataBarAxisPosition.Middle ? "middle" : value == eDataBarAxisPosition.None ? "none" : null);
             }
         }
@@ -189,7 +207,11 @@ namespace OfficeOpenXml.ConditionalFormatting
         public Color? AxisColor
         {
             get { return GetX14Color("axisColor"); }
-            set { SetX14Color("axisColor", value); }
+            set
+            {
+                if (NothingToDo(value == null)) return;
+                SetX14Color("axisColor", value);
+            }
         }
 
         /// <summary>The direction of the bar. The default is the reading order of the sheet.</summary>
@@ -206,6 +228,7 @@ namespace OfficeOpenXml.ConditionalFormatting
             }
             set
             {
+                if (NothingToDo(value == Direction)) return;
                 SetX14Attribute("direction", value == eDataBarDirection.LeftToRight ? "leftToRight" : value == eDataBarDirection.RightToLeft ? "rightToLeft" : null);
             }
         }
@@ -239,6 +262,7 @@ namespace OfficeOpenXml.ConditionalFormatting
         void SetLength(string name, int value)
         {
             if (value < 0 || value > 100) throw new ArgumentOutOfRangeException(name, "The length of a data bar is 0 to 100 percent");
+            if (NothingToDo(value == GetLength(name, name == "minLength" ? 10 : 90))) return;
             SetX14Attribute(name, value.ToString(CultureInfo.InvariantCulture));
         }
     }
