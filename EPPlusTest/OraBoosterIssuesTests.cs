@@ -1987,8 +1987,12 @@ namespace EPPlusTest
                 ((XmlElement)pivot.CacheDefinition.TopNode).RemoveAttribute("refreshOnLoad");
                 region.SetSort(OfficeOpenXml.Table.PivotTable.eSortType.Descending, pivot.DataFields[0]);
                 Assert.AreEqual("1", ((XmlElement)pivot.CacheDefinition.TopNode).GetAttribute("refreshOnLoad"));
-                // Sort alone sorts by the labels again
+                // Sort alone sorts by the labels again, and asks for the refresh too; setting the value it has does not
+                ((XmlElement)pivot.CacheDefinition.TopNode).RemoveAttribute("refreshOnLoad");
+                pivot.Fields["Product"].Sort = OfficeOpenXml.Table.PivotTable.eSortType.None;
+                Assert.AreEqual("", ((XmlElement)pivot.CacheDefinition.TopNode).GetAttribute("refreshOnLoad"));
                 region.Sort = OfficeOpenXml.Table.PivotTable.eSortType.Ascending;
+                Assert.AreEqual("1", ((XmlElement)pivot.CacheDefinition.TopNode).GetAttribute("refreshOnLoad"));
                 Assert.IsNull(region.SortDataField);
                 XmlElement after = (XmlElement)PartOf(SavedBytes(p), "xl/pivotTables/pivotTable1.xml", out ns).SelectSingleNode("d:pivotFields/d:pivotField[1]", ns);
                 Assert.AreEqual("ascending", after.GetAttribute("sortType"));

@@ -367,7 +367,13 @@ namespace OfficeOpenXml.Table.PivotTable
             }
             set
             {
-                ClearAutoSort(); // orabooster-epplus (issue #56): by the labels; SetSort sorts by a data field
+                // orabooster-epplus (issue #56): by the labels; SetSort sorts by a data field. A change is shown by a pivot table
+                // of a loaded workbook only after a refresh, so the cache is refreshed on load then.
+                string was = GetXmlNodeString("@sortType");
+                string now = value == eSortType.None ? "" : value.ToString().ToLower(CultureInfo.InvariantCulture);
+                bool changed = was != now || TopNode.SelectSingleNode("d:autoSortScope", NameSpaceManager) != null;
+                ClearAutoSort();
+                if (changed) RefreshOnLoad(_table);
                 if (value == eSortType.None)
                 {
                     DeleteNode("@sortType");
