@@ -1099,6 +1099,111 @@ namespace EPPlusTest
             Assert.IsNull(s1.SelectSingleNode("d:numFmt", ns));
         }
 
+        // #44: conditional formats of a file whose formats differ only in what has no property (here a gradient fill) keep their
+        // own format when the workbook is saved, and a changed one keeps what has no property.
+        static string CfDxfIds(byte[] a_package)
+        {
+            XmlNamespaceManager ns;
+            return string.Join(",", PartOf(a_package, "xl/worksheets/sheet1.xml", out ns).SelectNodes("d:conditionalFormatting/d:cfRule", ns)
+                .OfType<XmlElement>().Select(e => e.GetAttribute("operator") + "=" + e.GetAttribute("dxfId")));
+        }
+
+        [TestMethod]
+        public void Conditional_formats_of_a_file_keep_their_own_dxf()
+        {
+            XmlNamespaceManager ns;
+            const string red = "<dxf><font><b/><i val=\"0\"/></font><fill><gradientFill degree=\"90\"><stop position=\"0\"><color rgb=\"FFFF0000\"/></stop><stop position=\"1\"><color rgb=\"FFFFFFFF\"/></stop></gradientFill></fill></dxf>";
+            const string blue = "<dxf><font><b/><i val=\"0\"/></font><fill><gradientFill degree=\"90\"><stop position=\"0\"><color rgb=\"FF0000FF\"/></stop><stop position=\"1\"><color rgb=\"FFFFFFFF\"/></stop></gradientFill></fill></dxf>";
+            byte[] bytes;
+            using (var p = new ExcelPackage())
+            {
+                var ws = p.Workbook.Worksheets.Add("S");
+                for (int r = 1; r <= 9; r++) ws.Cells[r, 1].Value = r;
+                var over = ws.ConditionalFormatting.AddGreaterThan(ws.Cells["A1:A9"]);
+                over.Formula = "6";
+                over.Style.Font.Bold = true;
+                var under = ws.ConditionalFormatting.AddLessThan(ws.Cells["A1:A9"]);
+                under.Formula = "4";
+                under.Style.Font.Bold = true;
+                bytes = SavedBytes(p);
+            }
+            Assert.AreEqual("greaterThan=0,lessThan=0", CfDxfIds(bytes), "two new rules with the same style share a dxf, as before");
+            // as Excel writes it: a dxf for each rule, the same font, another gradient
+            bytes = WithPartChanged(bytes, "xl/styles.xml", s => System.Text.RegularExpressions.Regex.Replace(s, "<dxfs.*</dxfs>", "<dxfs count=\"2\">" + blue + red + "</dxfs>"));
+            bytes = WithPartChanged(bytes, "xl/worksheets/sheet1.xml", s => System.Text.RegularExpressions.Regex.Replace(s, "<cfRule [^>]*>",
+                m => m.Value.Contains("operator=\"greaterThan\"") ? m.Value.Replace("dxfId=\"0\"", "dxfId=\"1\"") : m.Value));
+            Assert.AreEqual("greaterThan=1,lessThan=0", CfDxfIds(bytes));
+
+            // saved with no change to the rules: each keeps its dxf, and no dxf is added
+            byte[] saved;
+            using (var p = new ExcelPackage(new MemoryStream(bytes)))
+            {
+                p.Workbook.Worksheets["S"].Cells["B1"].Value = "touched";
+                saved = SavedBytes(p);
+            }
+            Assert.AreEqual("greaterThan=1,lessThan=0", CfDxfIds(saved));
+            Assert.AreEqual(2, PartOf(saved, "xl/styles.xml", out ns).SelectNodes("d:dxfs/d:dxf", ns).Count);
+
+            // one rule changed: it gets a new dxf, a copy of its own with the change, so its gradient stays; the other keeps its dxf
+            byte[] changed;
+            using (var p = new ExcelPackage(new MemoryStream(bytes)))
+            {
+                var ws = p.Workbook.Worksheets["S"];
+                var over = ws.ConditionalFormatting.First(r => r.Type == OfficeOpenXml.ConditionalFormatting.eExcelConditionalFormattingRuleType.GreaterThan);
+                over.Style.Font.Color.Color = System.Drawing.Color.Green;
+                // a new rule with the same style as the two of the file: it must not take a dxf of the file (they have a gradient)
+                var equal = ws.ConditionalFormatting.AddEqual(ws.Cells["A1:A9"]);
+                equal.Formula = "5";
+                equal.Style.Font.Bold = true;
+                equal.Style.Font.Italic = false;
+                changed = SavedBytes(p);
+                byte[] again = SavedBytes(p);
+                Assert.AreEqual(CfDxfIds(changed), CfDxfIds(again), "a second save points the rules to the same dxfs");
+                Assert.AreEqual(4, PartOf(again, "xl/styles.xml", out ns).SelectNodes("d:dxfs/d:dxf", ns).Count, "and adds none");
+            }
+            Assert.AreEqual("greaterThan=2,lessThan=0,equal=3", CfDxfIds(changed));
+            XmlElement styles = PartOf(changed, "xl/styles.xml", out ns);
+            XmlNodeList dxfs = styles.SelectNodes("d:dxfs/d:dxf", ns);
+            Assert.AreEqual(4, dxfs.Count);
+            var was = new XmlDocument();
+            was.LoadXml("<dxfs xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">" + blue + red + "</dxfs>");
+            Assert.AreEqual(was.DocumentElement.ChildNodes[0].OuterXml, dxfs[0].OuterXml);
+            Assert.AreEqual(was.DocumentElement.ChildNodes[1].OuterXml, dxfs[1].OuterXml);
+            Assert.AreEqual("ff008000", dxfs[2].SelectSingleNode("d:font/d:color/@rgb", ns).Value);
+            Assert.AreEqual("1", dxfs[2].SelectSingleNode("d:font/d:b/@val", ns).Value);
+            Assert.AreEqual("FFFF0000", dxfs[2].SelectSingleNode("d:fill/d:gradientFill/d:stop[@position='0']/d:color/@rgb", ns).Value, "the gradient of the rule");
+            Assert.IsNull(dxfs[3].SelectSingleNode("d:fill", ns), "the new rule has only its font");
+        }
+
+        [TestMethod]
+        public void Conditional_format_added_to_a_file_with_no_dxfs()
+        {
+            XmlNamespaceManager ns;
+            byte[] bytes;
+            using (var p = new ExcelPackage())
+            {
+                p.Workbook.Worksheets.Add("S").Cells["A1"].Value = 1;
+                bytes = SavedBytes(p);
+            }
+            bytes = WithPartChanged(bytes, "xl/styles.xml", s => System.Text.RegularExpressions.Regex.Replace(s, "<dxfs[^>]*/>|<dxfs.*</dxfs>", ""));
+            Assert.IsNull(PartOf(bytes, "xl/styles.xml", out ns).SelectSingleNode("d:dxfs", ns));
+            byte[] saved;
+            using (var p = new ExcelPackage(new MemoryStream(bytes)))
+            {
+                var ws = p.Workbook.Worksheets["S"];
+                var rule = ws.ConditionalFormatting.AddGreaterThan(ws.Cells["A1:A9"]);
+                rule.Formula = "0";
+                rule.Style.Font.Bold = true;
+                saved = SavedBytes(p);
+            }
+            XmlElement styles = PartOf(saved, "xl/styles.xml", out ns);
+            Assert.AreEqual(1, styles.SelectNodes("d:dxfs/d:dxf", ns).Count);
+            Assert.AreEqual("1", ((XmlElement)styles.SelectSingleNode("d:dxfs", ns)).GetAttribute("count"));
+            string order = string.Join(",", styles.ChildNodes.OfType<XmlElement>().Select(e => e.LocalName));
+            Assert.IsTrue(order.IndexOf("cellStyles,dxfs", StringComparison.Ordinal) >= 0, order);
+            Assert.AreEqual("greaterThan=0", CfDxfIds(saved));
+        }
+
         // #34 (B5 of #8): saving and loading with asynchronous input and output.
         // A stream like the response of a web server that does not allow synchronous input and output: every synchronous read,
         // write and flush throws.
