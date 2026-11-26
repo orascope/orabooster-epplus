@@ -339,6 +339,43 @@ static class Issues
             }
         }
 
+        // #60 (B2 of #8, part 3): label filters and value filters. issue60_pivot_filters.xlsx has five pivot tables with Region in
+        // the rows and Sum of Sales (North 80, South 100, East 120, West 140):
+        //  PT1 label begins with "So": South.                PT2 value greater than 100: East, West.
+        //  PT3 top 1 by Sum of Sales: West.                  PT4 label between "E" and "O": East, North.
+        //  PT5 label is not "West" and value 100 or more (two filters on one field): East, South.
+        // pivot-in-excel.ps1 prints them.
+        {
+            using (var p = new ExcelPackage())
+            {
+                var data = p.Workbook.Worksheets.Add("Data");
+                data.Cells["A1"].Value = "Region"; data.Cells["B1"].Value = "Product"; data.Cells["C1"].Value = "Sales"; data.Cells["D1"].Value = "Qty";
+                string[] regions = { "North", "South", "East", "West" };
+                for (int r = 2; r <= 9; r++) { data.Cells[r, 1].Value = regions[(r - 2) % 4]; data.Cells[r, 2].Value = "P" + (r % 3); data.Cells[r, 3].Value = r * 10; data.Cells[r, 4].Value = r; }
+                var ws = p.Workbook.Worksheets.Add("Pivot");
+                for (int i = 1; i <= 5; i++)
+                {
+                    var pivot = ws.PivotTables.Add(ws.Cells[3, 1 + (i - 1) * 4], data.Cells["A1:D9"], "PT" + i);
+                    var region = pivot.Fields["Region"];
+                    pivot.RowFields.Add(region);
+                    var sales = pivot.DataFields.Add(pivot.Fields["Sales"]);
+                    sales.Name = "Sum of Sales";
+                    switch (i)
+                    {
+                        case 1: region.SetLabelFilter(OfficeOpenXml.Table.PivotTable.ePivotLabelFilter.BeginsWith, "So"); break;
+                        case 2: region.SetValueFilter(OfficeOpenXml.Table.PivotTable.ePivotValueFilter.GreaterThan, sales, 100); break;
+                        case 3: region.SetValueFilter(OfficeOpenXml.Table.PivotTable.ePivotValueFilter.TopCount, sales, 1); break;
+                        case 4: region.SetLabelFilter(OfficeOpenXml.Table.PivotTable.ePivotLabelFilter.Between, "E", "O"); break;
+                        case 5:
+                            region.SetLabelFilter(OfficeOpenXml.Table.PivotTable.ePivotLabelFilter.NotEquals, "West");
+                            region.SetValueFilter(OfficeOpenXml.Table.PivotTable.ePivotValueFilter.GreaterThanOrEqual, sales, 100);
+                            break;
+                    }
+                }
+                p.SaveAs(new FileInfo(Path.Combine(a_dir, "issue60_pivot_filters.xlsx")));
+            }
+        }
+
         // #35: encrypted workbooks, password "orabooster": standard and agile encryption. open-in-excel.ps1 opens the files whose
         // names start with issue35_encrypted with that password; Excel must show 200 rows.
         foreach (EncryptionVersion version in new[] { EncryptionVersion.Standard, EncryptionVersion.Agile })

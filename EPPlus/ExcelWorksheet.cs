@@ -3455,6 +3455,8 @@ namespace OfficeOpenXml
                 }
                 // orabooster-epplus (issue #56): the position of the data field a pivot field is sorted by, as it is now
                 foreach (var field in pt.Fields) field.WriteAutoSort();
+                // orabooster-epplus (issue #60): and of the data field of a value filter
+                foreach (var field in pt.Fields) field.WriteValueFilter();
                 pt.PivotTableXml.Save(pt.Part.GetStream(FileMode.Create));
                 pt.CacheDefinition.CacheDefinitionXml.Save(pt.CacheDefinition.Part.GetStream(FileMode.Create));
             }
