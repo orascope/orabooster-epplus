@@ -17,6 +17,8 @@ try {
             # issue 35: the encrypted samples are opened with their password (UpdateLinks 0, ReadOnly, Format 5, Password)
             if ($f.Name -like 'issue35_encrypted*') { $wb = $xl.Workbooks.Open($f.FullName, 0, $true, 5, 'orabooster') }
             else { $wb = $xl.Workbooks.Open($f.FullName) }
+            # a workbook with pivot tables is refreshed on load, and Excel rejects calls while it is busy: wait until it is ready
+            for ($i = 0; $i -lt 100; $i++) { try { if ($xl.Ready) { break } } catch { }; Start-Sleep -Milliseconds 300 }
             $ws = $wb.Worksheets.Item(1)
             if ($f.Name -like 'issue35_encrypted*') { "  rows Excel has in the encrypted workbook: {0}, A200 = {1}" -f $ws.UsedRange.Rows.Count, $ws.Range('A200').Text }
             "{0}: opened (tables {1}, charts {2}, comments {3})" -f $f.Name, $ws.ListObjects.Count, $ws.ChartObjects().Count, $ws.Comments.Count
