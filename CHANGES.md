@@ -1,8 +1,17 @@
 # Changes in orabooster-epplus
 
-## 4.5.3.8-ora.5 (not released yet, OraScope Co.,Ltd.)
+## 4.5.3.8-ora.5 (2026-11-27, OraScope Co.,Ltd.)
 
-The B items of the candidate list in #8, taken one at a time. They only add: a workbook that does not use them is saved exactly as by ora.4 (the samples of `tools/SaveBench` are compared part by part at every merge).
+The B items of the candidate list in #8, taken one at a time: the export of a range (B6), asynchronous save and load (B5), table styles of the workbook (B3), the data bar options of Excel 2010 (B4), slicers of tables (B1), and pivot tables (B2: calculated fields, sorting by a data field, label and value filters, filters by items, slicers of pivot tables). Eight fixes were found on the way: #35, #39, #40, #44, #49, #51 and #67 in the library, #58 in a test.
+
+They only add: a workbook that uses none of them and none of the fixed cases is saved exactly as by ora.4 (the samples of `tools/SaveBench` were compared part by part at every merge, and against the ora.4 tag for the release). What a caller can see differently is said in each entry; the main points:
+
+- `IExcelConditionalFormattingDataBarGroup` has new members (#46).
+- `TableStyle` of a loaded table or pivot table has its value, and `Medium9` for a new one before it is set (#39).
+- The style of a loaded conditional format reads `null` for what the file does not set (#40); a changed one is written with what its old format had (#44).
+- A drawing over hidden rows ends lower, to have its size while the rows are hidden (#51).
+- Merging cells in a table, and making a table over merged cells, throw: Excel does not open such a workbook (#67).
+- Sorting, filtering or adding a slicer to a pivot table of a loaded workbook sets `refreshOnLoad` on its cache, and a slicer raises the version marks of its pivot table and cache to Excel 2010.
 
 - **#32 (B6)** The export of a range: the reverse of `LoadFromDataTable` and `LoadFromText`. New file `EPPlus/ExcelRangeBase.Export.cs`; `ExcelRangeBase` is `partial` for it. Nothing here changes the workbook.
   - `range.ToDataTable(firstRowIsHeader = true)`: a `DataTable` named after the sheet. A column is typed when all its values have one type (`double`, `DateTime`, `bool`, `string`, `TimeSpan`), `object` when they are mixed, `string` when it has none. A number in a cell with a date format is a `DateTime`. An empty header is `Column` and its position, a header that comes again gets `_2`, `_3`.

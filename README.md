@@ -25,7 +25,7 @@ EPPlus 5 and later (https://github.com/EPPlusSoftware/EPPlus) are under the Poly
 The assembly is `OraBooster.EPPlus.dll`; the namespace is `OfficeOpenXml` as in EPPlus 4.5 and EPPlusFree, so code written for EPPlusFree 4.5.3.8 compiles unchanged.
 
 ```xml
-<PackageReference Include="OraBooster.EPPlus" Version="4.5.3.8-ora.4" />
+<PackageReference Include="OraBooster.EPPlus" Version="4.5.3.8-ora.5" />
 ```
 
 The package is not on nuget.org. Build it (below) or take the `.nupkg` from the [releases](https://github.com/orascope/orabooster-epplus/releases), and add the folder as a package source.
@@ -36,7 +36,7 @@ Full list with file names: [CHANGES.md](CHANGES.md). Every change is also marked
 
 | Version | Change |
 |---|---|
-| 4.5.3.8-ora.5 (not released yet) | The export of a range: `range.ToDataTable()`, `range.ToText(format)` and `range.SaveToText(file)` (CSV, the reverse of `LoadFromText`), `range.ToJson()`, `range.ToHtml()` (#32) |
+| 4.5.3.8-ora.5 | The export of a range: `range.ToDataTable()`, `range.ToText(format)` and `range.SaveToText(file)` (CSV, the reverse of `LoadFromText`), `range.ToJson()`, `range.ToHtml()` (#32) |
 | | Asynchronous input and output: `await package.SaveAsAsync(stream)`, `SaveAsAsync(file)`, `SaveAsync()`, `LoadAsync(stream)`, `LoadAsync(file)`. A stream that allows no synchronous writes (an ASP.NET Core response) can be saved to. The package itself is made in memory on the calling thread (#34) |
 | | Slicers of pivot tables: `var s = sheet.Drawings.AddPivotTableSlicer(pivot.Fields["Region"]); s.Select("East", "West");`. Pivot table slicers of a loaded workbook can be read, changed and removed (#65) |
 | | A pivot field filtered by its items: `field.HideItems("North")`, `field.ShowItems("P1", "P2")`, `pageField.SetPageItem(2026)`; `field.ItemValues`, `field.HiddenItems` (#62) |
@@ -74,6 +74,7 @@ Full list with file names: [CHANGES.md](CHANGES.md). Every change is also marked
 Since ora.2 packages are also read with `System.IO.Compression`; a load-and-save copy is part by part the same as with EPPlusFree.
 ora.3 saves a workbook that uses none of its new features and none of its fixed cases exactly as ora.2; [CHANGES.md](CHANGES.md) lists what a caller can see differently.
 ora.4 saves a workbook exactly as ora.3, except for a chart series added with `""` as its X range.
+ora.5 saves a workbook that uses none of its new features and none of its fixed cases exactly as ora.4.
 
 **Speed.** `tools/SaveBench`, 50,000 rows x 15 columns set cell by cell, a table and AutoFit on 1,000 rows, the same PC:
 
