@@ -1468,13 +1468,8 @@ namespace OfficeOpenXml
                 // orabooster-epplus (issue #67): Excel does not open a workbook with merged cells inside a table
                 if (value)
                 {
-                    foreach (var table in _worksheet.Tables)
-                    {
-                        if (table.Address.Collide(this, true) != eAddressCollition.No || (Addresses != null && Addresses.Exists(a => table.Address.Collide(a, true) != eAddressCollition.No)))
-                        {
-                            throw new InvalidOperationException("Cells in the table " + table.Name + " can not be merged: Excel does not open a workbook with merged cells in a table");
-                        }
-                    }
+                    _worksheet.CheckNoTableIn(this);
+                    if (Addresses != null) foreach (var a in Addresses) _worksheet.CheckNoTableIn(a);
                 }
                 _worksheet.MergedCells.Clear(this);
                 if (value)

@@ -2548,6 +2548,10 @@ namespace EPPlusTest
                 ws.Cells["B3:C3"].Merge = false;                   // nothing to take away: not refused
                 ws.Cells["E1:F1"].Merge = true;                    // outside the table
                 Assert.IsTrue(ws.Cells["E1:F1"].Merge);
+                Assert.ThrowsException<InvalidOperationException>(() => ws.Column(2).Merged = true, "a whole column through the table");
+                Assert.ThrowsException<InvalidOperationException>(() => ws.Row(4).Merged = true, "a whole row through the table");
+                ws.Column(8).Merged = true;                        // a column the table does not reach
+                Assert.AreEqual(2, ws.MergedCells.Count);
 
                 ws.Cells["A8:B8"].Merge = true;
                 Assert.ThrowsException<ArgumentException>(() => ws.Tables.Add(ws.Cells["A7:C9"], "Over"));
