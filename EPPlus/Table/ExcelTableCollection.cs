@@ -102,6 +102,15 @@ namespace OfficeOpenXml.Table
                     throw (new ArgumentException(string.Format("Table range collides with table {0}", t.Name)));
                 }
             }
+            // orabooster-epplus (issue #67): Excel does not open a workbook with merged cells inside a table
+            foreach (string merged in _ws.MergedCells)
+            {
+                if (merged == null) continue;
+                if (new ExcelAddressBase(merged).Collide(Range, true) != ExcelAddressBase.eAddressCollition.No) // the merged cells of this sheet: the sheet name of the range is not compared
+                {
+                    throw new ArgumentException("The range of the table has the merged cells " + merged + ": Excel does not open a workbook with merged cells in a table", "Range");
+                }
+            }
             return Add(new ExcelTable(_ws, Range, Name, _ws.Workbook._nextTableID));
         }
 

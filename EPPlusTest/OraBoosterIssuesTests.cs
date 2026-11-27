@@ -2532,6 +2532,31 @@ namespace EPPlusTest
             }
         }
 
+        // #67: merged cells in a table make a workbook Excel does not open; neither order is let through.
+        [TestMethod]
+        public void Cells_of_a_table_are_not_merged()
+        {
+            using (var p = new ExcelPackage())
+            {
+                var ws = p.Workbook.Worksheets.Add("S");
+                for (int c = 1; c <= 3; c++) ws.Cells[1, c].Value = "H" + c;
+                ws.Tables.Add(ws.Cells["A1:C5"], "T");
+                Assert.ThrowsException<InvalidOperationException>(() => ws.Cells["B3:C3"].Merge = true);
+                Assert.ThrowsException<InvalidOperationException>(() => ws.Cells["C4:E4"].Merge = true, "partly in the table");
+                Assert.ThrowsException<InvalidOperationException>(() => ws.Cells["E1:E2,B2:B3"].Merge = true, "one of several areas in the table");
+                Assert.AreEqual(0, ws.MergedCells.Count, "nothing was merged by the calls that threw");
+                ws.Cells["B3:C3"].Merge = false;                   // nothing to take away: not refused
+                ws.Cells["E1:F1"].Merge = true;                    // outside the table
+                Assert.IsTrue(ws.Cells["E1:F1"].Merge);
+
+                ws.Cells["A8:B8"].Merge = true;
+                Assert.ThrowsException<ArgumentException>(() => ws.Tables.Add(ws.Cells["A7:C9"], "Over"));
+                Assert.AreEqual(1, ws.Tables.Count);
+                ws.Tables.Add(ws.Cells["A11:C12"], "Below");      // not over merged cells
+                Assert.AreEqual(2, ws.Tables.Count);
+            }
+        }
+
         // #34 (B5 of #8): saving and loading with asynchronous input and output.
         // A stream like the response of a web server that does not allow synchronous input and output: every synchronous read,
         // write and flush throws.
