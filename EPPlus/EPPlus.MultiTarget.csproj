@@ -38,6 +38,7 @@
 		- Conditional formats of a loaded workbook keep their own format on save when they differ only in a gradient fill or font size (issue #44).
 		- A drawing with EditAs Absolute is saved where SetPosition put it (issue #49).
 		- A hidden row has no height when a drawing is placed and sized (issue #51).
+		- Merged cells in a table are refused: Excel does not open such a workbook (issue #67).
 
 		4.5.3.8-ora.4
 		- A chart series added with no X range (null or "") no longer throws or writes a reference with no address (issue #27).

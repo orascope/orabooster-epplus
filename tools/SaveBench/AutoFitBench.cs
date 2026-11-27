@@ -153,7 +153,10 @@ static class AutoFitBench
                 ws.Row(5).Style.Font.Size = 14;
                 ws.Column(7).Style.Font.Italic = true;
                 ws.Column(9).Hidden = true;
-                ws.Cells[10, 3, 10, 5].Merge = true;
+                // outside the table of the sheet (columns 1 to 10 on the sheets with one): Excel does not open a workbook with
+                // merged cells in a table, and the library refuses them now (issue #67)
+                if (s == 1) ws.Cells[10, 3, 10, 5].Merge = true;
+                else ws.Cells[10, 13, 10, 15].Merge = true;
                 ws.Cells[30, 12, 32, 12].Merge = true;
                 ws.Cells[40, 2].Value = new string('W', 300);     // longer than a text that is kept
                 ws.Cells[41, 2].Value = "line one\nline two is longer";

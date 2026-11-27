@@ -256,7 +256,9 @@ namespace OfficeOpenXml
             }
             set
             {
-                _worksheet.MergedCells.Add(new ExcelAddressBase(1, ColumnMin, ExcelPackage.MaxRows, ColumnMax), true);
+                var address = new ExcelAddressBase(1, ColumnMin, ExcelPackage.MaxRows, ColumnMax);
+                if (value) _worksheet.CheckNoTableIn(address); // orabooster-epplus (issue #67)
+                _worksheet.MergedCells.Add(address, true);
             }
         }
         #endregion

@@ -348,7 +348,9 @@ namespace OfficeOpenXml
             }
             set
             {
-                _worksheet.MergedCells.Add(new ExcelAddressBase(Row, 1, Row, ExcelPackage.MaxColumns), true);
+                var address = new ExcelAddressBase(Row, 1, Row, ExcelPackage.MaxColumns);
+                if (value) _worksheet.CheckNoTableIn(address); // orabooster-epplus (issue #67)
+                _worksheet.MergedCells.Add(address, true);
             }
         }
         internal static ulong GetRowID(int sheetID, int row)

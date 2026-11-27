@@ -420,6 +420,19 @@ namespace OfficeOpenXml
         internal Uri WorksheetUri { get { return (_worksheetUri); } }
         // orabooster-epplus (item B1 of issue #8, issue #48): the slicer parts of the sheet, read once when a slicer asks for them
         internal List<OfficeOpenXml.Drawing.ExcelTableSlicer.SlicerPart> _slicerParts;
+
+        // orabooster-epplus (issue #67): Excel does not open a workbook with merged cells inside a table. Called before cells, a
+        // column or a row are merged.
+        internal void CheckNoTableIn(ExcelAddressBase address)
+        {
+            foreach (var table in Tables)
+            {
+                if (table.Address.Collide(address, true) != ExcelAddressBase.eAddressCollition.No)
+                {
+                    throw new InvalidOperationException("Cells in the table " + table.Name + " can not be merged: Excel does not open a workbook with merged cells in a table");
+                }
+            }
+        }
         /// <summary>
         /// The Zip.ZipPackagePart for the worksheet within the package
         /// </summary>

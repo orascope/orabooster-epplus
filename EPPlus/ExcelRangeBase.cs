@@ -1465,6 +1465,12 @@ namespace OfficeOpenXml
             set
             {
                 IsRangeValid("merging");
+                // orabooster-epplus (issue #67): Excel does not open a workbook with merged cells inside a table
+                if (value)
+                {
+                    _worksheet.CheckNoTableIn(this);
+                    if (Addresses != null) foreach (var a in Addresses) _worksheet.CheckNoTableIn(a);
+                }
                 _worksheet.MergedCells.Clear(this);
                 if (value)
                 {
